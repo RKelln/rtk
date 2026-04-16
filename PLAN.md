@@ -16,15 +16,15 @@ References: [UPSTREAM_TODO.md](UPSTREAM_TODO.md), [upstream issue #1313](https:/
 
 ### Implementation notes (for future PRs to reference)
 
-**Config caching pattern:** Config is cached per-process via `OnceLock` in `src/core/config.rs`. The helpers `config::limits()`, `config::no_truncation()`, and `config::passthrough_limit()` all read from cache. Any new config helpers should follow the same pattern:
+**Config caching pattern:** Config is cached per-process via a single `OnceLock<Config>` in `src/core/config.rs`. The private `cached_config()` accessor loads the config once; all public helpers reference it. Any new config helpers should follow this pattern:
 
 ```rust
-static CACHED_FOO: OnceLock<FooType> = OnceLock::new();
-
 pub fn foo() -> &'static FooType {
-    CACHED_FOO.get_or_init(|| Config::load().map(|c| c.foo).unwrap_or_default())
+    &cached_config().foo
 }
 ```
+
+**Do NOT create separate `OnceLock`s per field** — that re-introduces multiple disk reads.
 
 **`limits()` returns `&'static LimitsConfig`** (not owned). Callers access fields via auto-deref. This was a signature change from the original `LimitsConfig` return type. Adding new fields to `LimitsConfig` works transparently — `PartialEq` is derived so the startup warning comparison auto-covers new fields.
 
@@ -45,7 +45,11 @@ pub fn foo() -> &'static FooType {
 | `src/parser/mod.rs:104` | `truncate_passthrough()` | Yes |
 | `src/cmds/system/summary.rs` | Various `.take(N)` | Not guarded — display-only, not data loss |
 | `src/cmds/system/deps.rs` | Various `.take(N)` | Not guarded — display-only |
-| `src/cmds/rust/cargo_cmd.rs` | `.take(15)`, `.take(10)` for errors/failures | Not guarded — consider for future |
+| `src/cmds/rust/cargo_cmd.rs:280` | `.take(15)` for install errors | Yes |
+| `src/cmds/rust/cargo_cmd.rs:630` | `.take(15)` for build errors | Yes |
+| `src/cmds/rust/cargo_cmd.rs:842` | `.take(10)` + `truncate(200)` for test failures | Yes |
+| `src/cmds/rust/cargo_cmd.rs:1013` | `.take(10)` error blocks + `.take(15)` rules + `.take(3)` locs + `truncate(160)` | Yes |
+| `src/cmds/rust/cargo_cmd.rs:856` | `.take(5)` fallback meaningful lines | Not guarded — last-resort fallback, rarely hit |
 | `src/cmds/git/git.rs:1355` | `.take(10)` for remote-only branches | Not guarded — display-only |
 
 **Startup warning** is scoped to `is_operational_command()` only (not `--version`, `gain`, `init`, etc.). It uses the cached helpers, not raw `Config::load()`. PR 2-4 should not add additional config warnings without checking the same scope.
@@ -112,7 +116,16 @@ show_line = true
 
 - **Regex compilation:** All regex in `match_pattern` MUST use `lazy_static!` or be pre-compiled into a `CompiledTeeIndexRule` struct at config load time. Never compile regex inside `compute_index()`.
 - **Config caching:** `TeeConfig` is already a field on `Config`. If you need a cached accessor (like `config::limits()`), follow the `OnceLock` pattern from PR 1. However, tee index rules may be better passed as parameters (like `apply_filter_with_safety` does) for testability.
-- **The `tee_and_hint()` signature change** will affect multiple call sites. Run `grep -n "tee_and_hint\|force_tee_hint" src/` to find them all. Each needs the new `Option<&[CompiledTeeIndexRule]>` parameter.
+- **The `tee_and_hint()` signature change** will affect multiple call sites. Run `grep -n "tee_and_hint\|force_tee_hint" src/` to find them all. Rather than adding individual parameters (`Option<&[CompiledTeeIndexRule]>`, `Option<usize>`), use a context struct to avoid future signature churn:
+
+```rust
+pub struct TeeHintContext<'a> {
+    pub index_rules: &'a [CompiledTeeIndexRule],
+    pub truncation_line: Option<usize>,
+}
+```
+
+This costs nothing now and prevents PR 3/4 from requiring another signature sweep across all call sites.
 
 ### 2.2 Per-filter index rules
 
@@ -180,9 +193,7 @@ When `no_truncation=false` and lines were dropped, auto-inject a truncation poin
   truncated → output truncated after L89; full results from L89 in tee file
 ```
 
-This requires `tee_and_hint()` and `force_tee_hint()` to accept:
-- `Option<&[CompiledTeeIndexRule]>` — the active index rules
-- `Option<usize>` — line number where truncation started (if applicable)
+This requires `tee_and_hint()` and `force_tee_hint()` to accept an `Option<&TeeHintContext>` parameter (see context struct above).
 
 ### 2.5 Tests
 
@@ -232,7 +243,7 @@ Remove the shadow warning in `toml_filter.rs` for commands listed in `rust_overr
 ### Implementation guidance from PR 1
 
 - **`FilterConfig` already has fields** (`ignore_dirs`, `ignore_files`). Adding `rust_override: Vec<String>` with `#[serde(default)]` is safe — existing configs without the field will deserialize fine (tested pattern in PR 1).
-- **Routing in `main.rs`:** The Clap `Commands` enum is matched in `run_cli()` at the big `match cli.command` block (~line 1322). The override check needs to happen *before* this match. Extract the base command from `std::env::args()` (not from Clap, since Clap already parsed it). See how `run_fallback()` extracts `args` for reference.
+- **Routing in `main.rs`:** The Clap `Commands` enum is matched in `run_cli()` at the big `match cli.command` block (~line 1322). The override check should happen *inside* each relevant Clap match arm (not before it via `env::args()`), using the Clap-resolved command name to avoid divergence between Clap's alias/case resolution and a manual `env::args()` extraction. Each guarded arm falls through to `run_fallback()` when the command is in `rust_override`.
 - **Config access:** Use the `OnceLock` caching pattern. Add a `pub fn rust_overrides() -> &'static Vec<String>` helper, or access via `Config::load()` once at the routing decision point.
 - **The `run_fallback()` call** already handles the TOML filter path including `apply_filter_with_safety` with `no_truncation`. No changes needed there — routing to it "just works" with PR 1's safety flag.
 
@@ -336,3 +347,7 @@ These patterns apply to all future PRs:
 7. **Duplicate code:** Extract helpers early. The `config::passthrough_limit()` pattern (combining a safety check with a config value) should be used whenever the same guard appears in 2+ places. Extract pure logic into testable helpers (e.g. `compute_passthrough_limit()`) to avoid tests duplicating implementation logic.
 
 8. **Truncation site classification for grep:** `max_line_len` (display-width, user-controlled via `--max-len`) and `max_results` (user-controlled via `--max`) are both CLI-arg-driven, not config-driven silent truncation. Classified as display concerns, same as pipeline stage 5. No `no_truncation` guard needed.
+
+9. **Effective limits vs raw limits:** `config::passthrough_limit()` bakes in the `no_truncation` guard, but `config::limits()` returns raw values — callers must check `no_truncation()` separately. In Rust handler code (like `cargo_cmd.rs`), use the inline pattern `let cap = if config::no_truncation() { usize::MAX } else { N };` at each truncation site. If a future PR introduces many new limit fields, consider an `effective_limits()` helper that returns a `LimitsConfig` with all values pre-set to `usize::MAX` when `no_truncation=true`.
+
+10. **`apply_filter()` call site safety:** Only one production call site exists (`main.rs:1139`), which already uses `apply_filter_with_safety()`. The plain `apply_filter()` is used by TOML inline test runner and unit tests — both correct. When adding new TOML filter call sites, always use `apply_filter_with_safety()` with `config::no_truncation()`.
