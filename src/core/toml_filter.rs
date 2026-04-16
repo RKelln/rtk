@@ -434,6 +434,18 @@ pub fn find_filter_in<'a>(
 ///   7. max_lines            — absolute line cap
 ///   8. on_empty             — message if result is empty
 pub fn apply_filter(filter: &CompiledFilter, stdout: &str) -> String {
+    apply_filter_with_safety(filter, stdout, false)
+}
+
+/// Like `apply_filter`, but when `no_truncation` is true, stages 6 (head/tail)
+/// and 7 (max_lines) are skipped — preserving all output lines.
+/// Note: stage 5 (`truncate_lines_at`) is intentionally NOT skipped; it caps
+/// individual line *width*, which is a display concern, not a data-loss concern.
+pub fn apply_filter_with_safety(
+    filter: &CompiledFilter,
+    stdout: &str,
+    no_truncation: bool,
+) -> String {
     let mut lines: Vec<String> = stdout.lines().map(String::from).collect();
 
     // 1. strip_ansi
@@ -491,34 +503,38 @@ pub fn apply_filter(filter: &CompiledFilter, stdout: &str) -> String {
             .collect();
     }
 
-    // 6. head + tail
-    let total = lines.len();
-    if let (Some(head), Some(tail)) = (filter.head_lines, filter.tail_lines) {
-        if total > head + tail {
-            let mut result = lines[..head].to_vec();
-            result.push(format!("... ({} lines omitted)", total - head - tail));
-            result.extend_from_slice(&lines[total - tail..]);
-            lines = result;
-        }
-    } else if let Some(head) = filter.head_lines {
-        if total > head {
-            lines.truncate(head);
-            lines.push(format!("... ({} lines omitted)", total - head));
-        }
-    } else if let Some(tail) = filter.tail_lines {
-        if total > tail {
-            let omitted = total - tail;
-            lines = lines[omitted..].to_vec();
-            lines.insert(0, format!("... ({} lines omitted)", omitted));
+    // 6. head + tail (skipped when no_truncation is true)
+    if !no_truncation {
+        let total = lines.len();
+        if let (Some(head), Some(tail)) = (filter.head_lines, filter.tail_lines) {
+            if total > head + tail {
+                let mut result = lines[..head].to_vec();
+                result.push(format!("... ({} lines omitted)", total - head - tail));
+                result.extend_from_slice(&lines[total - tail..]);
+                lines = result;
+            }
+        } else if let Some(head) = filter.head_lines {
+            if total > head {
+                lines.truncate(head);
+                lines.push(format!("... ({} lines omitted)", total - head));
+            }
+        } else if let Some(tail) = filter.tail_lines {
+            if total > tail {
+                let omitted = total - tail;
+                lines = lines[omitted..].to_vec();
+                lines.insert(0, format!("... ({} lines omitted)", omitted));
+            }
         }
     }
 
-    // 7. max_lines — absolute cap applied after head/tail (includes omit messages)
-    if let Some(max) = filter.max_lines {
-        if lines.len() > max {
-            let truncated = lines.len() - max;
-            lines.truncate(max);
-            lines.push(format!("... ({} lines truncated)", truncated));
+    // 7. max_lines — absolute cap applied after head/tail (skipped when no_truncation is true)
+    if !no_truncation {
+        if let Some(max) = filter.max_lines {
+            if lines.len() > max {
+                let truncated = lines.len() - max;
+                lines.truncate(max);
+                lines.push(format!("... ({} lines truncated)", truncated));
+            }
         }
     }
 
@@ -1693,5 +1709,108 @@ expected = "output line 1\noutput line 2"
             "Newly added filter must be discoverable via find_filter_in"
         );
         assert_eq!(found.unwrap().name, "my-new-tool");
+    }
+
+    // --- no_truncation safety flag tests ---
+
+    #[test]
+    fn test_no_truncation_preserves_all_lines_with_max_lines() {
+        let f = first_filter(
+            r#"
+schema_version = 1
+[filters.f]
+match_command = "^cmd"
+max_lines = 3
+"#,
+        );
+        // 100 lines of input
+        let input: String = (1..=100)
+            .map(|i| format!("line {}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let out = apply_filter_with_safety(&f, &input, true);
+        assert_eq!(
+            out.lines().count(),
+            100,
+            "no_truncation=true should preserve all 100 lines"
+        );
+        assert!(!out.contains("truncated"), "no truncation message expected");
+    }
+
+    #[test]
+    fn test_no_truncation_false_still_truncates() {
+        let f = first_filter(
+            r#"
+schema_version = 1
+[filters.f]
+match_command = "^cmd"
+max_lines = 3
+"#,
+        );
+        let input: String = (1..=100)
+            .map(|i| format!("line {}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let out = apply_filter_with_safety(&f, &input, false);
+        assert!(
+            out.lines().count() < 100,
+            "no_truncation=false should truncate"
+        );
+        assert!(out.contains("truncated"));
+    }
+
+    #[test]
+    fn test_no_truncation_preserves_all_lines_with_head_lines() {
+        let f = first_filter(
+            r#"
+schema_version = 1
+[filters.f]
+match_command = "^cmd"
+head_lines = 2
+"#,
+        );
+        let input = "a\nb\nc\nd\ne";
+        let out = apply_filter_with_safety(&f, input, true);
+        assert_eq!(
+            out, "a\nb\nc\nd\ne",
+            "no_truncation=true should preserve all lines"
+        );
+    }
+
+    #[test]
+    fn test_no_truncation_preserves_all_lines_with_tail_lines() {
+        let f = first_filter(
+            r#"
+schema_version = 1
+[filters.f]
+match_command = "^cmd"
+tail_lines = 2
+"#,
+        );
+        let input = "a\nb\nc\nd\ne";
+        let out = apply_filter_with_safety(&f, input, true);
+        assert_eq!(
+            out, "a\nb\nc\nd\ne",
+            "no_truncation=true should preserve all lines"
+        );
+    }
+
+    #[test]
+    fn test_no_truncation_keeps_lossless_stages() {
+        // strip_ansi and strip_lines should still work with no_truncation
+        let f = first_filter(
+            r#"
+schema_version = 1
+[filters.f]
+match_command = "^cmd"
+strip_ansi = true
+strip_lines_matching = ["^noise"]
+head_lines = 2
+"#,
+        );
+        let input = "\x1b[31mError\x1b[0m\nnoise line\nkeep this\nalso keep";
+        let out = apply_filter_with_safety(&f, input, true);
+        // ANSI stripped (lossless), noise stripped (line filter), but head_lines NOT applied
+        assert_eq!(out, "Error\nkeep this\nalso keep");
     }
 }

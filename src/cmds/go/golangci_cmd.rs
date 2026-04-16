@@ -270,7 +270,7 @@ pub(crate) fn filter_golangci_json(output: &str, version: u32) -> String {
             return format!(
                 "golangci-lint (JSON parse failed: {})\n{}",
                 e,
-                truncate(output, config::limits().passthrough_max_chars)
+                truncate(output, config::passthrough_limit())
             );
         }
     };

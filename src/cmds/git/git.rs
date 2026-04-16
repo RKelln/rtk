@@ -3,10 +3,10 @@
 use crate::core::config;
 use crate::core::tracking;
 use crate::core::utils::{exit_code_from_output, exit_code_from_status, resolved_command};
-use std::process::Stdio;
 use anyhow::{Context, Result};
 use std::ffi::OsString;
 use std::process::Command;
+use std::process::Stdio;
 
 #[derive(Debug, Clone)]
 pub enum GitCommand {
@@ -691,8 +691,17 @@ fn format_status_output(porcelain: &str) -> String {
 
     // Build summary
     let limits = config::limits();
-    let max_files = limits.status_max_files;
-    let max_untracked = limits.status_max_untracked;
+    let no_trunc = config::no_truncation();
+    let max_files = if no_trunc {
+        usize::MAX
+    } else {
+        limits.status_max_files
+    };
+    let max_untracked = if no_trunc {
+        usize::MAX
+    } else {
+        limits.status_max_untracked
+    };
 
     if staged > 0 {
         output.push_str(&format!("+ Staged: {} files\n", staged));
@@ -1014,7 +1023,10 @@ fn run_push(args: &[String], verbose: u8, global_args: &[String]) -> Result<i32>
         cmd.arg(arg);
     }
 
-    let output = cmd.stdin(Stdio::inherit()).output().context("Failed to run git push")?;
+    let output = cmd
+        .stdin(Stdio::inherit())
+        .output()
+        .context("Failed to run git push")?;
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1857,7 +1869,10 @@ mod tests {
         let normalized = normalize_diff_args(&args);
         assert_eq!(
             normalized,
-            vec!["--".to_string(), "apps/client/frontend/src/MyComponent.tsx".to_string()],
+            vec![
+                "--".to_string(),
+                "apps/client/frontend/src/MyComponent.tsx".to_string()
+            ],
             "-- must be injected before the path argument"
         );
     }
@@ -1869,7 +1884,11 @@ mod tests {
         let normalized = normalize_diff_args(&args);
         assert_eq!(
             normalized,
-            vec!["HEAD".to_string(), "--".to_string(), "src/foo.rs".to_string()]
+            vec![
+                "HEAD".to_string(),
+                "--".to_string(),
+                "src/foo.rs".to_string()
+            ]
         );
     }
 
@@ -1880,7 +1899,11 @@ mod tests {
         let normalized = normalize_diff_args(&args);
         assert_eq!(
             normalized,
-            vec!["--cached".to_string(), "--".to_string(), "src/foo.rs".to_string()]
+            vec![
+                "--cached".to_string(),
+                "--".to_string(),
+                "src/foo.rs".to_string()
+            ]
         );
     }
 
@@ -1896,10 +1919,7 @@ mod tests {
     fn test_normalize_diff_args_dotfile_is_path() {
         let args = vec![".gitignore".to_string()];
         let normalized = normalize_diff_args(&args);
-        assert_eq!(
-            normalized,
-            vec!["--".to_string(), ".gitignore".to_string()]
-        );
+        assert_eq!(normalized, vec!["--".to_string(), ".gitignore".to_string()]);
     }
 
     /// A bare word that isn't path-like (e.g. a branch name) → no injection.

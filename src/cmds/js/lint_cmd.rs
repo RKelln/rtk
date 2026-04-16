@@ -239,7 +239,7 @@ fn filter_eslint_json(output: &str) -> String {
             return format!(
                 "ESLint output (JSON parse failed: {})\n{}",
                 e,
-                truncate(output, config::limits().passthrough_max_chars)
+                truncate(output, config::passthrough_limit())
             );
         }
     };
@@ -331,7 +331,7 @@ fn filter_pylint_json(output: &str) -> String {
             return format!(
                 "Pylint output (JSON parse failed: {})\n{}",
                 e,
-                truncate(output, config::limits().passthrough_max_chars)
+                truncate(output, config::passthrough_limit())
             );
         }
     };
@@ -463,12 +463,19 @@ fn filter_generic_lint(output: &str) -> String {
     result.push_str(&format!("Lint: {} errors, {} warnings\n", errors, warnings));
     result.push_str("═══════════════════════════════════════\n");
 
-    for issue in issues.iter().take(20) {
-        result.push_str(&format!("{}\n", truncate(issue, 100)));
+    let no_trunc = config::no_truncation();
+    let max_issues = if no_trunc { usize::MAX } else { 20 };
+    let max_issue_chars = if no_trunc { usize::MAX } else { 100 };
+
+    for issue in issues.iter().take(max_issues) {
+        result.push_str(&format!("{}\n", truncate(issue, max_issue_chars)));
     }
 
-    if issues.len() > 20 {
-        result.push_str(&format!("\n... +{} more issues\n", issues.len() - 20));
+    if issues.len() > max_issues {
+        result.push_str(&format!(
+            "\n... +{} more issues\n",
+            issues.len() - max_issues
+        ));
     }
 
     result.trim().to_string()
