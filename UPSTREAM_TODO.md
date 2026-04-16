@@ -3,27 +3,27 @@
 Planned contributions to rtk from the Togather project context.
 See issue #1313 for the truncation safety concern.
 
-## 1. `[safety] no_truncation = true` config flag
+## 1. `[limits] no_truncation = true` config flag
 
 **Problem:** `[limits]` caps (`grep_max_results`, `status_max_files`, etc.) silently truncate
 output. An agent reading truncated `git status` or `grep` output gets a partial picture with no
 indication data was dropped. This causes subtle, hard-to-debug failures.
 
-**Proposed:** Add a `[safety]` section with a `no_truncation = true` flag that disables all
+**Proposed:** Add a `no_truncation = true` flag to the existing `[limits]` section that disables all
 lossy truncation while preserving lossless ops (ANSI strip, dedup, reformat). When enabled,
-ignore all `[limits]` caps and emit full output.
+all `[limits]` caps are bypassed and full output is emitted.
 
 ```toml
-[safety]
+[limits]
 no_truncation = true   # disable lossy caps; preserves lossless ops
 ```
 
 **Implementation sketch:**
-- Add `SafetyConfig { no_truncation: bool }` struct
-- Thread a `safety` ref through all command handlers that apply limits
+- Add `no_truncation: bool` field to `LimitsConfig` with `#[serde(default)]`
+- Thread config through all command handlers that apply limits
 - When `no_truncation = true`, skip the `take(n)` / `truncate` calls
-- Emit a one-time warning at startup if `no_truncation = true` and any `[limits]` value is also
-  set (contradictory config)
+- Emit a one-time warning at startup if `no_truncation = true` and any other `[limits]` value
+  differs from defaults (contradictory config)
 
 ---
 

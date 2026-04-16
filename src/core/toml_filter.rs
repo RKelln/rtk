@@ -1711,7 +1711,7 @@ expected = "output line 1\noutput line 2"
         assert_eq!(found.unwrap().name, "my-new-tool");
     }
 
-    // --- no_truncation safety flag tests ---
+    // --- no_truncation [limits] flag tests ---
 
     #[test]
     fn test_no_truncation_preserves_all_lines_with_max_lines() {

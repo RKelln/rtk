@@ -25,16 +25,6 @@ pub struct Config {
     pub hooks: HooksConfig,
     #[serde(default)]
     pub limits: LimitsConfig,
-    #[serde(default)]
-    pub safety: SafetyConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SafetyConfig {
-    /// When true, disables all lossy truncation (line caps, result limits).
-    /// Lossless operations (ANSI strip, dedup, reformat) are preserved.
-    #[serde(default)]
-    pub no_truncation: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -113,21 +103,47 @@ pub struct TelemetryConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LimitsConfig {
+    /// When true, disables all lossy truncation (line caps, result limits).
+    /// Lossless operations (ANSI strip, dedup, reformat) are preserved.
+    #[serde(default)]
+    pub no_truncation: bool,
     /// Max total grep results to show (default: 200)
+    #[serde(default = "default_grep_max_results")]
     pub grep_max_results: usize,
     /// Max matches per file in grep output (default: 25)
+    #[serde(default = "default_grep_max_per_file")]
     pub grep_max_per_file: usize,
     /// Max staged/modified files shown in git status (default: 15)
+    #[serde(default = "default_status_max_files")]
     pub status_max_files: usize,
     /// Max untracked files shown in git status (default: 10)
+    #[serde(default = "default_status_max_untracked")]
     pub status_max_untracked: usize,
     /// Max chars for parser passthrough fallback (default: 2000)
+    #[serde(default = "default_passthrough_max_chars")]
     pub passthrough_max_chars: usize,
+}
+
+fn default_grep_max_results() -> usize {
+    200
+}
+fn default_grep_max_per_file() -> usize {
+    25
+}
+fn default_status_max_files() -> usize {
+    15
+}
+fn default_status_max_untracked() -> usize {
+    10
+}
+fn default_passthrough_max_chars() -> usize {
+    2000
 }
 
 impl Default for LimitsConfig {
     fn default() -> Self {
         Self {
+            no_truncation: false,
             grep_max_results: 200,
             grep_max_per_file: 25,
             status_max_files: 15,
@@ -148,9 +164,9 @@ pub fn limits() -> &'static LimitsConfig {
     &cached_config().limits
 }
 
-/// Check if no_truncation safety flag is enabled (cached). Falls back to false.
+/// Check if no_truncation flag is enabled (cached). Falls back to false.
 pub fn no_truncation() -> bool {
-    cached_config().safety.no_truncation
+    cached_config().limits.no_truncation
 }
 
 /// Compute effective passthrough limit from components (testable without OnceLock).
@@ -273,46 +289,57 @@ enabled = true
     }
 
     #[test]
-    fn test_safety_config_default() {
+    fn test_no_truncation_default() {
         let config = Config::default();
-        assert!(!config.safety.no_truncation);
+        assert!(!config.limits.no_truncation);
     }
 
     #[test]
-    fn test_safety_config_deserialize_true() {
+    fn test_no_truncation_deserialize_true() {
         let toml = r#"
-[safety]
+[limits]
 no_truncation = true
 "#;
         let config: Config = toml::from_str(toml).expect("valid toml");
-        assert!(config.safety.no_truncation);
+        assert!(config.limits.no_truncation);
     }
 
     #[test]
-    fn test_safety_config_deserialize_false() {
+    fn test_no_truncation_deserialize_false() {
         let toml = r#"
-[safety]
+[limits]
 no_truncation = false
 "#;
         let config: Config = toml::from_str(toml).expect("valid toml");
-        assert!(!config.safety.no_truncation);
+        assert!(!config.limits.no_truncation);
     }
 
     #[test]
-    fn test_config_without_safety_section_is_valid() {
+    fn test_config_without_limits_section_defaults_no_truncation() {
         let toml = r#"
 [tracking]
 enabled = true
 history_days = 90
 "#;
         let config: Config = toml::from_str(toml).expect("valid toml");
-        assert!(!config.safety.no_truncation);
+        assert!(!config.limits.no_truncation);
     }
 
     #[test]
-    fn test_safety_config_default_no_truncation_is_false() {
-        let safety = SafetyConfig::default();
-        assert!(!safety.no_truncation);
+    fn test_old_config_with_safety_section_still_parses() {
+        // Backward compat: configs from before the [safety] -> [limits] move
+        // should deserialize without error (unknown sections are ignored).
+        let toml = r#"
+[safety]
+no_truncation = true
+
+[limits]
+grep_max_results = 200
+"#;
+        let config: Config = toml::from_str(toml).expect("valid toml");
+        // The old [safety] section is silently ignored
+        assert!(!config.limits.no_truncation);
+        assert_eq!(config.limits.grep_max_results, 200);
     }
 
     #[test]

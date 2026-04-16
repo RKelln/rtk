@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
-* **safety:** add `[safety] no_truncation = true` config flag to disable all lossy truncation ([#1313](https://github.com/rtk-ai/rtk/issues/1313))
+* **limits:** add `[limits] no_truncation = true` config flag to disable all lossy truncation ([#1313](https://github.com/rtk-ai/rtk/issues/1313))
   - When enabled, stages 6 (head/tail_lines) and 7 (max_lines) in the TOML filter pipeline are skipped
   - All Rust handler limits (`status_max_files`, `grep_max_per_file`, `passthrough_max_chars`, etc.) are bypassed
   - Lossless operations (ANSI strip, dedup, reformat, line filtering) are preserved

@@ -101,7 +101,7 @@ pub trait OutputParser: Sized {
 }
 
 /// Truncate output using configured passthrough limit.
-/// When `[safety] no_truncation = true`, returns output unchanged.
+/// When `[limits] no_truncation = true`, returns output unchanged.
 pub fn truncate_passthrough(output: &str) -> String {
     if crate::core::config::no_truncation() {
         return output.to_string();
