@@ -1131,7 +1131,7 @@ fn run_fallback(parse_error: clap::Error) -> Result<i32> {
                 };
                 // Tee raw output BEFORE filtering on failure — lets LLM re-read if needed
                 let tee_hint = if !output.status.success() {
-                    core::tee::tee_and_hint(&combined_raw, &raw_command, exit_code)
+                    core::tee::tee_and_hint(&combined_raw, &raw_command, exit_code, None)
                 } else {
                     None
                 };

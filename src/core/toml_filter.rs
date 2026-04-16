@@ -106,6 +106,9 @@ struct TomlFilterDef {
     /// Use for tools like liquibase that emit banners/logs to stderr.
     #[serde(default)]
     filter_stderr: bool,
+    /// Per-filter tee index rules — augment global rules when this filter is active.
+    #[serde(default)]
+    tee_index: Vec<crate::core::tee::TeeIndexRule>,
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +154,8 @@ pub struct CompiledFilter {
     on_empty: Option<String>,
     /// When true, the runner should capture stderr and merge it with stdout.
     pub filter_stderr: bool,
+    /// Pre-compiled tee index rules for this filter.
+    pub tee_index: Vec<crate::core::tee::CompiledTeeIndexRule>,
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +403,11 @@ fn compile_filter(name: String, def: TomlFilterDef) -> Result<CompiledFilter, St
         max_lines: def.max_lines,
         on_empty: def.on_empty,
         filter_stderr: def.filter_stderr,
+        tee_index: def
+            .tee_index
+            .iter()
+            .filter_map(crate::core::tee::CompiledTeeIndexRule::compile)
+            .collect(),
     })
 }
 

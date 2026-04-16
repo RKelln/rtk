@@ -52,7 +52,7 @@ pub fn run_err(command: &str, verbose: u8) -> Result<i32> {
     }
 
     let exit_code = crate::core::utils::exit_code_from_output(&output, "err");
-    if let Some(hint) = crate::core::tee::tee_and_hint(&raw, "err", exit_code) {
+    if let Some(hint) = crate::core::tee::tee_and_hint(&raw, "err", exit_code, None) {
         println!("{}\n{}", rtk, hint);
     } else {
         println!("{}", rtk);
@@ -90,7 +90,7 @@ pub fn run_test(command: &str, verbose: u8) -> Result<i32> {
 
     let exit_code = crate::core::utils::exit_code_from_output(&output, "test");
     let summary = extract_test_summary(&raw, command);
-    if let Some(hint) = crate::core::tee::tee_and_hint(&raw, "test", exit_code) {
+    if let Some(hint) = crate::core::tee::tee_and_hint(&raw, "test", exit_code, None) {
         println!("{}\n{}", summary, hint);
     } else {
         println!("{}", summary);

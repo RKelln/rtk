@@ -2,6 +2,7 @@
 
 use super::constants::RTK_DATA_DIR;
 use crate::core::config::Config;
+use regex::Regex;
 use std::path::PathBuf;
 
 /// Minimum output size to tee (smaller outputs don't need recovery)
@@ -169,7 +170,8 @@ pub fn tee_raw(raw: &str, command_slug: &str, exit_code: i32) -> Option<PathBuf>
 }
 
 /// Format the hint line with ~ shorthand for home directory.
-fn format_hint(path: &std::path::Path) -> String {
+/// If `ctx` is provided, appends index block with line-number hints.
+fn format_hint(path: &std::path::Path, raw: &str, ctx: Option<&TeeHintContext>) -> String {
     let display = if let Some(home) = dirs::home_dir() {
         if let Ok(relative) = path.strip_prefix(&home) {
             format!("~/{}", relative.display())
@@ -180,14 +182,31 @@ fn format_hint(path: &std::path::Path) -> String {
         path.display().to_string()
     };
 
-    format!("[full output: {}]", display)
+    let mut hint = format!("[full output: {}]", display);
+
+    if let Some(ctx) = ctx {
+        let index = compute_index(raw, ctx.index_rules);
+        let block = format_index_block(&index, ctx.truncation_line);
+        if !block.is_empty() {
+            hint.push('\n');
+            hint.push_str(&block);
+        }
+    }
+
+    hint
 }
 
 /// Convenience: tee + format hint in one call.
 /// Returns hint string if file was written, None if skipped.
-pub fn tee_and_hint(raw: &str, command_slug: &str, exit_code: i32) -> Option<String> {
+/// Pass `ctx` to include index hints in the output.
+pub fn tee_and_hint(
+    raw: &str,
+    command_slug: &str,
+    exit_code: i32,
+    ctx: Option<&TeeHintContext>,
+) -> Option<String> {
     let path = tee_raw(raw, command_slug, exit_code)?;
-    Some(format_hint(&path))
+    Some(format_hint(&path, raw, ctx))
 }
 
 /// Force tee output regardless of exit code (used when filters truncate).
@@ -196,7 +215,11 @@ pub fn tee_and_hint(raw: &str, command_slug: &str, exit_code: i32) -> Option<Str
 ///
 /// Used by AWS filters when FilterResult.truncated = true, ensuring
 /// the LLM has access to full untruncated output via the hint path.
-pub fn force_tee_hint(raw: &str, command_slug: &str) -> Option<String> {
+pub fn force_tee_hint(
+    raw: &str,
+    command_slug: &str,
+    ctx: Option<&TeeHintContext>,
+) -> Option<String> {
     // Check RTK_TEE=0 env override (disable)
     if std::env::var("RTK_TEE").ok().as_deref() == Some("0") {
         return None;
@@ -225,7 +248,7 @@ pub fn force_tee_hint(raw: &str, command_slug: &str) -> Option<String> {
         config.tee.max_files,
     )?;
 
-    Some(format_hint(&path))
+    Some(format_hint(&path, raw, ctx))
 }
 
 /// TeeMode controls when tee writes files.
@@ -247,6 +270,9 @@ pub struct TeeConfig {
     pub max_file_size: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub directory: Option<PathBuf>,
+    /// Global tee index rules — emit line-number hints in tee output.
+    #[serde(default)]
+    pub index: Vec<TeeIndexRule>,
 }
 
 impl Default for TeeConfig {
@@ -257,8 +283,173 @@ impl Default for TeeConfig {
             max_files: DEFAULT_MAX_FILES,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             directory: None,
+            index: Vec::new(),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tee index — structured hints for agent navigation
+// ---------------------------------------------------------------------------
+
+/// User-facing config rule (TOML-deserializable).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TeeIndexRule {
+    pub name: String,
+    /// Regex pattern to match against raw output lines.
+    #[serde(rename = "match")]
+    pub match_pattern: String,
+    /// Which matches to keep: "first", "last", or "all".
+    #[serde(default)]
+    pub keep: KeepMode,
+    /// Include matched line text in the hint (not just line number).
+    #[serde(default)]
+    pub show_line: bool,
+}
+
+/// Which matched lines to keep in the index result.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum KeepMode {
+    #[default]
+    First,
+    Last,
+    All,
+}
+
+/// A compiled index rule with pre-compiled regex (avoids per-line recompilation).
+#[derive(Debug)]
+pub struct CompiledTeeIndexRule {
+    pub name: String,
+    pub pattern: Regex,
+    pub keep: KeepMode,
+    pub show_line: bool,
+}
+
+impl CompiledTeeIndexRule {
+    /// Compile a `TeeIndexRule` into a `CompiledTeeIndexRule`.
+    /// Returns `None` if the regex pattern is invalid.
+    pub fn compile(rule: &TeeIndexRule) -> Option<Self> {
+        match Regex::new(&rule.match_pattern) {
+            Ok(pattern) => Some(Self {
+                name: rule.name.clone(),
+                pattern,
+                keep: rule.keep.clone(),
+                show_line: rule.show_line,
+            }),
+            Err(e) => {
+                eprintln!(
+                    "[rtk] warning: tee index rule '{}': invalid regex: {}",
+                    rule.name, e
+                );
+                None
+            }
+        }
+    }
+}
+
+/// Max chars to show for matched line text in index hints.
+const INDEX_LINE_TRUNCATE: usize = 80;
+
+/// Truncate a string at a UTF-8-safe boundary, appending "…" if truncated.
+fn truncate_utf8(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let boundary = s
+        .char_indices()
+        .take_while(|(i, _)| *i < max_bytes)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    format!("{}…", &s[..boundary])
+}
+#[derive(Debug)]
+pub struct IndexResult {
+    pub name: String,
+    /// (1-indexed line number, line text)
+    pub matches: Vec<(usize, String)>,
+    pub show_line: bool,
+}
+
+/// Context passed to tee hint functions for index and truncation info.
+#[derive(Debug)]
+pub struct TeeHintContext<'a> {
+    pub index_rules: &'a [CompiledTeeIndexRule],
+    /// If set, indicates output was truncated after this line number.
+    pub truncation_line: Option<usize>,
+}
+
+/// Compute index results by running rules against raw output.
+fn compute_index(raw: &str, rules: &[CompiledTeeIndexRule]) -> Vec<IndexResult> {
+    let mut results = Vec::new();
+    for rule in rules {
+        let kept: Vec<(usize, String)> = match rule.keep {
+            KeepMode::First => {
+                // Short-circuit: stop after first match
+                raw.lines()
+                    .enumerate()
+                    .find(|(_, line)| rule.pattern.is_match(line))
+                    .map(|(i, line)| vec![(i + 1, line.to_string())])
+                    .unwrap_or_default()
+            }
+            KeepMode::Last => {
+                // Must scan all lines to find last match
+                raw.lines()
+                    .enumerate()
+                    .filter(|(_, line)| rule.pattern.is_match(line))
+                    .last()
+                    .map(|(i, line)| vec![(i + 1, line.to_string())])
+                    .unwrap_or_default()
+            }
+            KeepMode::All => raw
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| rule.pattern.is_match(line))
+                .map(|(i, line)| (i + 1, line.to_string()))
+                .collect(),
+        };
+
+        if !kept.is_empty() {
+            results.push(IndexResult {
+                name: rule.name.clone(),
+                matches: kept,
+                show_line: rule.show_line,
+            });
+        }
+    }
+    results
+}
+
+/// Format index results as hint lines.
+fn format_index_block(index: &[IndexResult], truncation_line: Option<usize>) -> String {
+    let mut lines = Vec::new();
+    for result in index {
+        if result.show_line {
+            for (line_num, text) in &result.matches {
+                // Truncate line text to keep hints concise (UTF-8 safe)
+                let display_text = truncate_utf8(text, INDEX_LINE_TRUNCATE);
+                lines.push(format!(
+                    "  {} → L{}: \"{}\"",
+                    result.name, line_num, display_text
+                ));
+            }
+        } else {
+            let lnums: Vec<String> = result
+                .matches
+                .iter()
+                .map(|(n, _)| format!("L{}", n))
+                .collect();
+            lines.push(format!("  {} → {}", result.name, lnums.join(", ")));
+        }
+    }
+    if let Some(trunc_line) = truncation_line {
+        lines.push(format!(
+            "  truncated → output truncated after L{}; full results from L{} in tee file",
+            trunc_line, trunc_line
+        ));
+    }
+    lines.join("\n")
 }
 
 #[cfg(test)]
@@ -434,7 +625,7 @@ mod tests {
     #[test]
     fn test_format_hint() {
         let path = PathBuf::from("/tmp/rtk/tee/123_cargo_test.log");
-        let hint = format_hint(&path);
+        let hint = format_hint(&path, "", None);
         assert!(hint.starts_with("[full output: "));
         assert!(hint.ends_with(']'));
         assert!(hint.contains("123_cargo_test.log"));
@@ -490,7 +681,7 @@ directory = "/tmp/rtk-tee"
     fn test_force_tee_hint_skip_small_output() {
         // force_tee_hint should respect MIN_TEE_SIZE
         let small_output = "short error";
-        let hint = force_tee_hint(small_output, "test_cmd");
+        let hint = force_tee_hint(small_output, "test_cmd", None);
         assert!(hint.is_none(), "Should skip output < MIN_TEE_SIZE");
     }
 
@@ -499,8 +690,273 @@ directory = "/tmp/rtk-tee"
         // When RTK_TEE=0, force_tee_hint should return None
         std::env::set_var("RTK_TEE", "0");
         let large_output = "x".repeat(1000);
-        let hint = force_tee_hint(&large_output, "test_cmd");
+        let hint = force_tee_hint(&large_output, "test_cmd", None);
         std::env::remove_var("RTK_TEE");
         assert!(hint.is_none(), "Should respect RTK_TEE=0");
+    }
+
+    // -----------------------------------------------------------------------
+    // Tee index tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_keep_mode_default_is_first() {
+        let mode = KeepMode::default();
+        assert_eq!(mode, KeepMode::First);
+    }
+
+    #[test]
+    fn test_tee_index_rule_deserialize() {
+        let toml_str = r#"
+name = "first_error"
+match = "error|^FAIL|^fatal"
+keep = "first"
+show_line = true
+"#;
+        let rule: TeeIndexRule = toml::from_str(toml_str).unwrap();
+        assert_eq!(rule.name, "first_error");
+        assert_eq!(rule.match_pattern, "error|^FAIL|^fatal");
+        assert_eq!(rule.keep, KeepMode::First);
+        assert!(rule.show_line);
+    }
+
+    #[test]
+    fn test_tee_index_rule_defaults() {
+        let toml_str = r#"
+name = "summary"
+match = "^test result"
+"#;
+        let rule: TeeIndexRule = toml::from_str(toml_str).unwrap();
+        assert_eq!(rule.keep, KeepMode::First);
+        assert!(!rule.show_line);
+    }
+
+    #[test]
+    fn test_tee_config_with_index_rules() {
+        let toml_str = r#"
+enabled = true
+mode = "always"
+max_files = 20
+max_file_size = 1048576
+
+[[index]]
+name = "first_error"
+match = "error|^FAIL"
+keep = "first"
+show_line = true
+
+[[index]]
+name = "test_summary"
+match = "^(ok|FAIL|---)"
+keep = "all"
+show_line = true
+"#;
+        let config: TeeConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.index.len(), 2);
+        assert_eq!(config.index[0].name, "first_error");
+        assert_eq!(config.index[1].keep, KeepMode::All);
+    }
+
+    #[test]
+    fn test_tee_config_without_index_backward_compat() {
+        let toml_str = r#"
+enabled = true
+mode = "failures"
+max_files = 20
+max_file_size = 1048576
+"#;
+        let config: TeeConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.index.is_empty());
+    }
+
+    #[test]
+    fn test_compiled_tee_index_rule_valid() {
+        let rule = TeeIndexRule {
+            name: "errors".into(),
+            match_pattern: r"error|^FAIL".into(),
+            keep: KeepMode::First,
+            show_line: true,
+        };
+        let compiled = CompiledTeeIndexRule::compile(&rule);
+        assert!(compiled.is_some());
+        let compiled = compiled.unwrap();
+        assert!(compiled.pattern.is_match("error: something"));
+        assert!(compiled.pattern.is_match("FAIL test_foo"));
+        assert!(!compiled.pattern.is_match("ok: passed"));
+    }
+
+    #[test]
+    fn test_compiled_tee_index_rule_invalid_regex() {
+        let rule = TeeIndexRule {
+            name: "bad".into(),
+            match_pattern: r"[invalid".into(),
+            keep: KeepMode::First,
+            show_line: false,
+        };
+        assert!(CompiledTeeIndexRule::compile(&rule).is_none());
+    }
+
+    #[test]
+    fn test_compute_index_first() {
+        let raw = "line 1 ok\nerror: bad thing\nline 3 ok\nerror: another";
+        let rule = CompiledTeeIndexRule {
+            name: "first_error".into(),
+            pattern: Regex::new("error").unwrap(),
+            keep: KeepMode::First,
+            show_line: true,
+        };
+        let results = compute_index(raw, &[rule]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matches.len(), 1);
+        assert_eq!(results[0].matches[0].0, 2); // 1-indexed
+        assert!(results[0].matches[0].1.contains("bad thing"));
+    }
+
+    #[test]
+    fn test_compute_index_last() {
+        let raw = "error: first\nok\nerror: last";
+        let rule = CompiledTeeIndexRule {
+            name: "last_error".into(),
+            pattern: Regex::new("error").unwrap(),
+            keep: KeepMode::Last,
+            show_line: true,
+        };
+        let results = compute_index(raw, &[rule]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matches.len(), 1);
+        assert_eq!(results[0].matches[0].0, 3);
+        assert!(results[0].matches[0].1.contains("last"));
+    }
+
+    #[test]
+    fn test_compute_index_all() {
+        let raw = "error: a\nok\nerror: b\nerror: c";
+        let rule = CompiledTeeIndexRule {
+            name: "all_errors".into(),
+            pattern: Regex::new("error").unwrap(),
+            keep: KeepMode::All,
+            show_line: false,
+        };
+        let results = compute_index(raw, &[rule]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matches.len(), 3);
+        assert_eq!(results[0].matches[0].0, 1);
+        assert_eq!(results[0].matches[1].0, 3);
+        assert_eq!(results[0].matches[2].0, 4);
+    }
+
+    #[test]
+    fn test_compute_index_no_matches() {
+        let raw = "all good\neverything fine";
+        let rule = CompiledTeeIndexRule {
+            name: "errors".into(),
+            pattern: Regex::new("error").unwrap(),
+            keep: KeepMode::First,
+            show_line: true,
+        };
+        let results = compute_index(raw, &[rule]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_compute_index_multiple_rules() {
+        let raw = "error: broken\nwarning: deprecated\ntest result: ok";
+        let rules = vec![
+            CompiledTeeIndexRule {
+                name: "errors".into(),
+                pattern: Regex::new("error").unwrap(),
+                keep: KeepMode::First,
+                show_line: true,
+            },
+            CompiledTeeIndexRule {
+                name: "summary".into(),
+                pattern: Regex::new("^test result").unwrap(),
+                keep: KeepMode::Last,
+                show_line: true,
+            },
+        ];
+        let results = compute_index(raw, &rules);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].name, "errors");
+        assert_eq!(results[1].name, "summary");
+    }
+
+    #[test]
+    fn test_format_index_block_with_show_line() {
+        let index = vec![IndexResult {
+            name: "first_error".into(),
+            matches: vec![(47, "FAIL: TestFoo (timeout)".into())],
+            show_line: true,
+        }];
+        let block = format_index_block(&index, None);
+        assert_eq!(block, "  first_error → L47: \"FAIL: TestFoo (timeout)\"");
+    }
+
+    #[test]
+    fn test_format_index_block_without_show_line() {
+        let index = vec![IndexResult {
+            name: "summary".into(),
+            matches: vec![(112, "".into()), (118, "".into()), (203, "".into())],
+            show_line: false,
+        }];
+        let block = format_index_block(&index, None);
+        assert_eq!(block, "  summary → L112, L118, L203");
+    }
+
+    #[test]
+    fn test_format_index_block_with_truncation() {
+        let block = format_index_block(&[], Some(89));
+        assert!(block.contains("truncated → output truncated after L89"));
+        assert!(block.contains("full results from L89 in tee file"));
+    }
+
+    #[test]
+    fn test_format_index_block_combined() {
+        let index = vec![IndexResult {
+            name: "first_error".into(),
+            matches: vec![(47, "FAIL: TestFoo".into())],
+            show_line: true,
+        }];
+        let block = format_index_block(&index, Some(89));
+        assert!(block.contains("first_error → L47"));
+        assert!(block.contains("truncated → output truncated after L89"));
+    }
+
+    #[test]
+    fn test_format_index_block_empty() {
+        let block = format_index_block(&[], None);
+        assert!(block.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_utf8_ascii() {
+        let short = "hello";
+        assert_eq!(truncate_utf8(short, 80), "hello");
+        let long = "x".repeat(100);
+        let result = truncate_utf8(&long, 80);
+        assert!(result.ends_with('…'));
+        assert!(result.len() <= 84); // 80 + 3 bytes for …
+    }
+
+    #[test]
+    fn test_truncate_utf8_multibyte() {
+        // Japanese chars are 3 bytes each
+        let japanese = "\u{6F22}".repeat(30); // 90 bytes
+        let result = truncate_utf8(&japanese, 80);
+        assert!(result.ends_with('…'));
+        // Should not panic — must truncate at char boundary
+        assert!(result.is_char_boundary(result.len() - '…'.len_utf8()));
+    }
+
+    #[test]
+    fn test_format_index_block_long_line_truncated() {
+        let long_text = format!("error: {}", "x".repeat(100));
+        let index = vec![IndexResult {
+            name: "err".into(),
+            matches: vec![(1, long_text)],
+            show_line: true,
+        }];
+        let block = format_index_block(&index, None);
+        assert!(block.contains('…'));
     }
 }

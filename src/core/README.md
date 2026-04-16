@@ -78,6 +78,20 @@ max_files = 20
 max_file_size = 1048576
 directory = "/custom/tee/dir"
 
+# Tee index rules — emit line-number hints in tee output.
+# Agents can use these to jump directly to errors/summaries with `Read offset=N`.
+[[tee.index]]
+name = "first_error"
+match = "error|^FAIL|^fatal"
+keep = "first"       # first | last | all (default: first)
+show_line = true     # include matched line text in hint (default: false)
+
+[[tee.index]]
+name = "test_summary"
+match = "^(ok|FAIL|---)"
+keep = "all"
+show_line = true
+
 [telemetry]
 enabled = true
 

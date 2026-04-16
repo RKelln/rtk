@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Config is cached per-process via `OnceLock` for zero-overhead access
   - Emits startup warning when `no_truncation=true` and `[limits]` have been customized
 
+* **tee:** add tee index — structured line-number hints for agent navigation
+  - New `[[tee.index]]` config: define regex rules to emit `Read offset=N` targets in tee hints
+  - Supports `keep = "first"`, `"last"`, or `"all"` and `show_line = true/false`
+  - Per-filter `tee_index` rules in TOML filter definitions augment global rules
+  - `TeeHintContext` struct for future extensibility (truncation pointer, per-filter context)
+  - Auto-injects truncation pointer when lines were dropped
+
 ## [0.36.0](https://github.com/rtk-ai/rtk/compare/v0.35.0...v0.36.0) (2026-04-13)
 
 

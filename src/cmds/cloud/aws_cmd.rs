@@ -346,7 +346,7 @@ fn run_aws_filtered(
 
     if !status.success() {
         let exit_code = exit_code_from_status(&status, "aws");
-        if let Some(hint) = crate::core::tee::tee_and_hint(&raw, &slug, exit_code) {
+        if let Some(hint) = crate::core::tee::tee_and_hint(&raw, &slug, exit_code, None) {
             eprintln!("{}\n{}", stderr.trim(), hint);
         } else {
             eprintln!("{}", stderr.trim());
@@ -361,12 +361,12 @@ fn run_aws_filtered(
     });
 
     if result.truncated {
-        if let Some(hint) = crate::core::tee::force_tee_hint(&raw, &slug) {
+        if let Some(hint) = crate::core::tee::force_tee_hint(&raw, &slug, None) {
             println!("{}\n{}", result.text, hint);
         } else {
             println!("{}", result.text);
         }
-    } else if let Some(hint) = crate::core::tee::tee_and_hint(&raw, &slug, 0) {
+    } else if let Some(hint) = crate::core::tee::tee_and_hint(&raw, &slug, 0, None) {
         println!("{}\n{}", result.text, hint);
     } else {
         println!("{}", result.text);
@@ -399,7 +399,7 @@ fn run_s3_ls(extra_args: &[String], verbose: u8) -> Result<i32> {
     };
     if !output.status.success() {
         let exit_code = exit_code_from_output(&output, "aws");
-        if let Some(hint) = crate::core::tee::tee_and_hint(&raw, "aws_s3_ls", exit_code) {
+        if let Some(hint) = crate::core::tee::tee_and_hint(&raw, "aws_s3_ls", exit_code, None) {
             eprintln!("{}\n{}", stderr.trim(), hint);
         } else {
             eprintln!("{}", stderr.trim());
@@ -410,7 +410,7 @@ fn run_s3_ls(extra_args: &[String], verbose: u8) -> Result<i32> {
 
     let result = filter_s3_ls(&stdout);
     if result.truncated {
-        if let Some(hint) = crate::core::tee::force_tee_hint(&raw, "aws_s3_ls") {
+        if let Some(hint) = crate::core::tee::force_tee_hint(&raw, "aws_s3_ls", None) {
             println!("{}\n{}", result.text, hint);
         } else {
             println!("{}", result.text);
@@ -452,7 +452,7 @@ fn run_s3_transfer(operation: &str, extra_args: &[String], verbose: u8) -> Resul
     };
     if !output.status.success() {
         let exit_code = exit_code_from_output(&output, "aws");
-        if let Some(hint) = crate::core::tee::tee_and_hint(&raw, &slug, exit_code) {
+        if let Some(hint) = crate::core::tee::tee_and_hint(&raw, &slug, exit_code, None) {
             eprintln!("{}\n{}", stderr.trim(), hint);
         } else {
             eprintln!("{}", stderr.trim());
@@ -463,7 +463,7 @@ fn run_s3_transfer(operation: &str, extra_args: &[String], verbose: u8) -> Resul
 
     let result = filter_s3_transfer(&stdout);
     if result.truncated {
-        if let Some(hint) = force_tee_hint(&raw, &slug) {
+        if let Some(hint) = force_tee_hint(&raw, &slug, None) {
             println!("{}\n{}", result.text, hint);
         } else {
             println!("{}", result.text);

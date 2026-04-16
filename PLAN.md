@@ -58,9 +58,11 @@ pub fn foo() -> &'static FooType {
 
 ---
 
-## PR 2: Tee index — structured hints for agent navigation
+## PR 2: Tee index — structured hints for agent navigation ✅ DONE
 
 **Addresses:** Agents reading tee files blindly. Gives `Read offset=N` targets without scanning.
+
+**Status:** Implemented. Types, compute_index, format_index_block, TeeHintContext, per-filter tee_index, all call sites updated.
 
 ### 2.1 Config types
 
