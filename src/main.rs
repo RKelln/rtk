@@ -1311,12 +1311,21 @@ fn run_cli() -> Result<i32> {
     if is_operational_command(&cli.command) {
         hooks::integrity::runtime_check()?;
 
-        // Warn if no_truncation is enabled but [limits] have been customized
+        // Warn if no_truncation is enabled but numeric [limits] have been customized
         // (meaning the user set limits that will silently have no effect).
-        if core::config::no_truncation()
-            && *core::config::limits() != core::config::LimitsConfig::default()
-        {
-            eprintln!("[rtk] note: [safety] no_truncation=true \u{2014} [limits] caps are ignored");
+        if core::config::no_truncation() {
+            let current = core::config::limits();
+            let defaults = core::config::LimitsConfig::default();
+            if current.grep_max_results != defaults.grep_max_results
+                || current.grep_max_per_file != defaults.grep_max_per_file
+                || current.status_max_files != defaults.status_max_files
+                || current.status_max_untracked != defaults.status_max_untracked
+                || current.passthrough_max_chars != defaults.passthrough_max_chars
+            {
+                eprintln!(
+                    "[rtk] note: [limits] no_truncation=true \u{2014} custom limits are ignored"
+                );
+            }
         }
     }
 

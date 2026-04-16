@@ -6,7 +6,7 @@ References: [UPSTREAM_TODO.md](UPSTREAM_TODO.md), [upstream issue #1313](https:/
 
 ---
 
-## PR 1: `[safety] no_truncation = true` config flag — COMPLETED
+## PR 1: `[limits] no_truncation = true` config flag — COMPLETED
 
 **Addresses:** Issue #1313 — silent truncation causes agent failures.
 
