@@ -321,7 +321,7 @@ PR 4 (docs) — after features prove value
 
 These patterns apply to all future PRs:
 
-1. **Config caching:** Use `OnceLock` for any new config accessor. Never call `Config::load()` in a loop or hot path. See `config::limits()`, `config::no_truncation()`, `config::passthrough_limit()` for examples.
+1. **Config caching:** Use single `CACHED_CONFIG: OnceLock<Config>` with `cached_config()` accessor. All field accessors (`limits()`, `no_truncation()`) reference this single cached instance — one disk read per process. Never call `Config::load()` in a loop or hot path. See `config::limits()`, `config::no_truncation()`, `config::passthrough_limit()` for examples.
 
 2. **Backward compatibility:** All new config sections MUST use `#[serde(default)]` on the parent `Config` field AND on individual fields within the new struct. Test deserialization of TOML that omits the new section entirely.
 
@@ -333,4 +333,6 @@ These patterns apply to all future PRs:
 
 6. **Pre-commit gate:** `cargo fmt --all && cargo clippy --all-targets && cargo test --all` — zero tolerance for warnings or failures. Run after every logical change.
 
-7. **Duplicate code:** Extract helpers early. The `config::passthrough_limit()` pattern (combining a safety check with a config value) should be used whenever the same guard appears in 2+ places.
+7. **Duplicate code:** Extract helpers early. The `config::passthrough_limit()` pattern (combining a safety check with a config value) should be used whenever the same guard appears in 2+ places. Extract pure logic into testable helpers (e.g. `compute_passthrough_limit()`) to avoid tests duplicating implementation logic.
+
+8. **Truncation site classification for grep:** `max_line_len` (display-width, user-controlled via `--max-len`) and `max_results` (user-controlled via `--max`) are both CLI-arg-driven, not config-driven silent truncation. Classified as display concerns, same as pipeline stage 5. No `no_truncation` guard needed.

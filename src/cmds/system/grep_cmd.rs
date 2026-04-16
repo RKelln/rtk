@@ -12,8 +12,8 @@ use std::process::Stdio;
 pub fn run(
     pattern: &str,
     path: &str,
-    max_line_len: usize,
-    max_results: usize,
+    max_line_len: usize, // Display-width truncation (user-controlled via --max-len), not data loss
+    max_results: usize,  // User-controlled via --max CLI arg, not config-driven
     context_only: bool,
     file_type: Option<&str>,
     extra_args: &[String],
