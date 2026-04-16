@@ -1130,8 +1130,14 @@ fn run_fallback(parse_error: clap::Error) -> Result<i32> {
                     stdout_raw.to_string()
                 };
                 // Tee raw output BEFORE filtering on failure — lets LLM re-read if needed
+                let tee_ctx = core::tee::global_hint_context();
                 let tee_hint = if !output.status.success() {
-                    core::tee::tee_and_hint(&combined_raw, &raw_command, exit_code, None)
+                    core::tee::tee_and_hint(
+                        &combined_raw,
+                        &raw_command,
+                        exit_code,
+                        tee_ctx.as_ref(),
+                    )
                 } else {
                     None
                 };

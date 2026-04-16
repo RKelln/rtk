@@ -4,6 +4,7 @@ use super::constants::RTK_DATA_DIR;
 use crate::core::config::Config;
 use regex::Regex;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 /// Minimum output size to tee (smaller outputs don't need recovery)
 const MIN_TEE_SIZE: usize = 500;
@@ -378,6 +379,38 @@ pub struct TeeHintContext<'a> {
     pub index_rules: &'a [CompiledTeeIndexRule],
     /// If set, indicates output was truncated after this line number.
     pub truncation_line: Option<usize>,
+}
+
+/// Cached global tee index rules, compiled once per process.
+static GLOBAL_TEE_INDEX: OnceLock<Vec<CompiledTeeIndexRule>> = OnceLock::new();
+
+/// Get cached compiled global tee index rules from config.
+pub fn global_index_rules() -> &'static [CompiledTeeIndexRule] {
+    GLOBAL_TEE_INDEX.get_or_init(|| {
+        Config::load()
+            .map(|c| {
+                c.tee
+                    .index
+                    .iter()
+                    .filter_map(CompiledTeeIndexRule::compile)
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// Build a TeeHintContext from global config rules.
+/// Returns None if no index rules are configured.
+pub fn global_hint_context() -> Option<TeeHintContext<'static>> {
+    let rules = global_index_rules();
+    if rules.is_empty() {
+        None
+    } else {
+        Some(TeeHintContext {
+            index_rules: rules,
+            truncation_line: None,
+        })
+    }
 }
 
 /// Compute index results by running rules against raw output.

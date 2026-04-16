@@ -62,7 +62,7 @@ pub fn foo() -> &'static FooType {
 
 **Addresses:** Agents reading tee files blindly. Gives `Read offset=N` targets without scanning.
 
-**Status:** Implemented. Types, compute_index, format_index_block, TeeHintContext, per-filter tee_index, all call sites updated.
+**Status:** Fully complete. Types, compute_index, format_index_block, TeeHintContext, per-filter tee_index, global caching (OnceLock), all call sites wired to `global_hint_context()`, dogfooded and verified working.
 
 ### 2.1 Config types
 
@@ -327,7 +327,7 @@ PR 4 (docs) — after features prove value
 
 - [x] Full audit of truncation sites across `src/cmds/` (for PR 1)
 - [x] Verify `apply_filter()` call sites (for PR 1)
-- [ ] Map all `tee_and_hint()` / `force_tee_hint()` call sites (for PR 2)
+- [x] Map all `tee_and_hint()` / `force_tee_hint()` call sites (for PR 2)
 - [ ] Test with real agent workflow before upstreaming
 
 ## Cross-Cutting Implementation Patterns (learned from PR 1)

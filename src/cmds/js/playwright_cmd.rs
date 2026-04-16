@@ -317,7 +317,10 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
     };
 
     let exit_code = crate::core::utils::exit_code_from_output(&output, "playwright");
-    if let Some(hint) = crate::core::tee::tee_and_hint(&raw, "playwright", exit_code, None) {
+    let tee_ctx = crate::core::tee::global_hint_context();
+    if let Some(hint) =
+        crate::core::tee::tee_and_hint(&raw, "playwright", exit_code, tee_ctx.as_ref())
+    {
         println!("{}\n{}", filtered, hint);
     } else {
         println!("{}", filtered);

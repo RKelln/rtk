@@ -208,7 +208,8 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
         .status
         .code()
         .unwrap_or(if output.status.success() { 0 } else { 1 });
-    if let Some(hint) = crate::core::tee::tee_and_hint(&raw, "lint", exit_code, None) {
+    let tee_ctx = crate::core::tee::global_hint_context();
+    if let Some(hint) = crate::core::tee::tee_and_hint(&raw, "lint", exit_code, tee_ctx.as_ref()) {
         println!("{}\n{}", filtered, hint);
     } else {
         println!("{}", filtered);
