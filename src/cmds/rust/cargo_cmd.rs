@@ -1,5 +1,6 @@
 //! Filters cargo output — build errors, test results, clippy warnings.
 
+use crate::core::config;
 use crate::core::runner;
 use crate::core::utils::{resolved_command, truncate};
 use anyhow::Result;
@@ -277,7 +278,12 @@ fn filter_cargo_install(output: &str) -> String {
         }
         result.push_str("═══════════════════════════════════════\n");
 
-        for (i, err) in errors.iter().enumerate().take(15) {
+        let error_cap = if config::no_truncation() {
+            usize::MAX
+        } else {
+            15
+        };
+        for (i, err) in errors.iter().enumerate().take(error_cap) {
             result.push_str(err);
             result.push('\n');
             if i < errors.len() - 1 {
@@ -285,8 +291,11 @@ fn filter_cargo_install(output: &str) -> String {
             }
         }
 
-        if errors.len() > 15 {
-            result.push_str(&format!("\n... +{} more issues\n", errors.len() - 15));
+        if errors.len() > error_cap {
+            result.push_str(&format!(
+                "\n... +{} more issues\n",
+                errors.len() - error_cap
+            ));
         }
 
         return result.trim().to_string();
@@ -618,7 +627,12 @@ fn filter_cargo_build(output: &str) -> String {
     ));
     result.push_str("═══════════════════════════════════════\n");
 
-    for (i, err) in errors.iter().enumerate().take(15) {
+    let error_cap = if config::no_truncation() {
+        usize::MAX
+    } else {
+        15
+    };
+    for (i, err) in errors.iter().enumerate().take(error_cap) {
         result.push_str(err);
         result.push('\n');
         if i < errors.len() - 1 {
@@ -626,8 +640,11 @@ fn filter_cargo_build(output: &str) -> String {
         }
     }
 
-    if errors.len() > 15 {
-        result.push_str(&format!("\n... +{} more issues\n", errors.len() - 15));
+    if errors.len() > error_cap {
+        result.push_str(&format!(
+            "\n... +{} more issues\n",
+            errors.len() - error_cap
+        ));
     }
 
     result.trim().to_string()
@@ -822,11 +839,28 @@ fn filter_cargo_test(output: &str) -> String {
     if !failures.is_empty() {
         result.push_str(&format!("FAILURES ({}):\n", failures.len()));
         result.push_str("═══════════════════════════════════════\n");
-        for (i, failure) in failures.iter().enumerate().take(10) {
-            result.push_str(&format!("{}. {}\n", i + 1, truncate(failure, 200)));
+        let failure_cap = if config::no_truncation() {
+            usize::MAX
+        } else {
+            10
+        };
+        let failure_line_len = if config::no_truncation() {
+            usize::MAX
+        } else {
+            200
+        };
+        for (i, failure) in failures.iter().enumerate().take(failure_cap) {
+            result.push_str(&format!(
+                "{}. {}\n",
+                i + 1,
+                truncate(failure, failure_line_len)
+            ));
         }
-        if failures.len() > 10 {
-            result.push_str(&format!("\n... +{} more failures\n", failures.len() - 10));
+        if failures.len() > failure_cap {
+            result.push_str(&format!(
+                "\n... +{} more failures\n",
+                failures.len() - failure_cap
+            ));
         }
         result.push('\n');
     }
@@ -924,7 +958,11 @@ fn filter_cargo_clippy(output: &str) -> String {
                     line.to_string()
                 }
             } else {
-                let prefix = if is_error_line { "error: " } else { "warning: " };
+                let prefix = if is_error_line {
+                    "error: "
+                } else {
+                    "warning: "
+                };
                 line.strip_prefix(prefix).unwrap_or(line).to_string()
             };
         } else if line.trim_start().starts_with("--> ") {
@@ -969,17 +1007,26 @@ fn filter_cargo_clippy(output: &str) -> String {
     ));
     result.push_str("═══════════════════════════════════════\n");
 
+    let no_trunc = config::no_truncation();
+    let block_cap = if no_trunc { usize::MAX } else { 10 };
+    let line_cap = if no_trunc { usize::MAX } else { 160 };
+    let rule_cap = if no_trunc { usize::MAX } else { 15 };
+    let loc_cap = if no_trunc { usize::MAX } else { 3 };
+
     // Show full error blocks so developers can see what needs fixing
     if !error_blocks.is_empty() {
         result.push_str("\nErrors:\n");
-        for block in error_blocks.iter().take(10) {
+        for block in error_blocks.iter().take(block_cap) {
             for block_line in block {
-                result.push_str(&format!("  {}\n", truncate(block_line, 160)));
+                result.push_str(&format!("  {}\n", truncate(block_line, line_cap)));
             }
             result.push('\n');
         }
-        if error_blocks.len() > 10 {
-            result.push_str(&format!("  ... +{} more errors\n", error_blocks.len() - 10));
+        if error_blocks.len() > block_cap {
+            result.push_str(&format!(
+                "  ... +{} more errors\n",
+                error_blocks.len() - block_cap
+            ));
         }
     }
 
@@ -987,18 +1034,18 @@ fn filter_cargo_clippy(output: &str) -> String {
     let mut rule_counts: Vec<_> = by_rule.iter().collect();
     rule_counts.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
-    for (rule, locations) in rule_counts.iter().take(15) {
+    for (rule, locations) in rule_counts.iter().take(rule_cap) {
         result.push_str(&format!("  {} ({}x)\n", rule, locations.len()));
-        for loc in locations.iter().take(3) {
+        for loc in locations.iter().take(loc_cap) {
             result.push_str(&format!("    {}\n", loc));
         }
-        if locations.len() > 3 {
-            result.push_str(&format!("    ... +{} more\n", locations.len() - 3));
+        if locations.len() > loc_cap {
+            result.push_str(&format!("    ... +{} more\n", locations.len() - loc_cap));
         }
     }
 
-    if by_rule.len() > 15 {
-        result.push_str(&format!("\n... +{} more rules\n", by_rule.len() - 15));
+    if by_rule.len() > rule_cap {
+        result.push_str(&format!("\n... +{} more rules\n", by_rule.len() - rule_cap));
     }
 
     result.trim().to_string()
@@ -1423,10 +1470,22 @@ error[E0308]: mismatched types
 error: aborting due to 1 previous error
 "#;
         let result = filter_cargo_clippy(output);
-        assert!(result.contains("cargo clippy: 1 errors, 0 warnings"), "got: {}", result);
-        assert!(result.contains("error[E0308]: mismatched types"), "got: {}", result);
+        assert!(
+            result.contains("cargo clippy: 1 errors, 0 warnings"),
+            "got: {}",
+            result
+        );
+        assert!(
+            result.contains("error[E0308]: mismatched types"),
+            "got: {}",
+            result
+        );
         assert!(result.contains("src/main.rs:10:5"), "got: {}", result);
-        assert!(result.contains("expected `i32`, found `&str`"), "got: {}", result);
+        assert!(
+            result.contains("expected `i32`, found `&str`"),
+            "got: {}",
+            result
+        );
     }
 
     #[test]
