@@ -6,11 +6,10 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-/// Process-scoped cached config values. Loaded once on first access.
-static CACHED_LIMITS: OnceLock<LimitsConfig> = OnceLock::new();
-static CACHED_NO_TRUNCATION: OnceLock<bool> = OnceLock::new();
+/// Process-scoped cached config. Loaded once on first access, avoids repeated disk I/O.
+static CACHED_CONFIG: OnceLock<Config> = OnceLock::new();
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub tracking: TrackingConfig,
@@ -30,7 +29,7 @@ pub struct Config {
     pub safety: SafetyConfig,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SafetyConfig {
     /// When true, disables all lossy truncation (line caps, result limits).
     /// Lossless operations (ANSI strip, dedup, reformat) are preserved.
@@ -38,7 +37,7 @@ pub struct SafetyConfig {
     pub no_truncation: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HooksConfig {
     /// Commands to exclude from auto-rewrite (e.g. ["curl", "playwright"]).
     /// Survives `rtk init -g` re-runs since config.toml is user-owned.
@@ -46,7 +45,7 @@ pub struct HooksConfig {
     pub exclude_commands: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackingConfig {
     pub enabled: bool,
     pub history_days: u32,
@@ -64,7 +63,7 @@ impl Default for TrackingConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayConfig {
     pub colors: bool,
     pub emoji: bool,
@@ -81,7 +80,7 @@ impl Default for DisplayConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterConfig {
     pub ignore_dirs: Vec<String>,
     pub ignore_files: Vec<String>,
@@ -103,7 +102,7 @@ impl Default for FilterConfig {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelemetryConfig {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -112,7 +111,7 @@ pub struct TelemetryConfig {
     pub consent_date: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LimitsConfig {
     /// Max total grep results to show (default: 200)
     pub grep_max_results: usize,
@@ -138,29 +137,34 @@ impl Default for LimitsConfig {
     }
 }
 
-/// Get limits config (cached per process via `OnceLock`).
+/// Get the cached config (loaded once per process). Falls back to defaults.
+fn cached_config() -> &'static Config {
+    CACHED_CONFIG.get_or_init(|| Config::load().unwrap_or_default())
+}
+
+/// Get limits config (cached per process).
 /// Returns a `&'static` reference — callers access fields directly via auto-deref.
-/// Falls back to defaults if config can't be loaded.
 pub fn limits() -> &'static LimitsConfig {
-    CACHED_LIMITS.get_or_init(|| Config::load().map(|c| c.limits).unwrap_or_default())
+    &cached_config().limits
 }
 
 /// Check if no_truncation safety flag is enabled (cached). Falls back to false.
 pub fn no_truncation() -> bool {
-    *CACHED_NO_TRUNCATION.get_or_init(|| {
-        Config::load()
-            .map(|c| c.safety.no_truncation)
-            .unwrap_or(false)
-    })
+    cached_config().safety.no_truncation
+}
+
+/// Compute effective passthrough limit from components (testable without OnceLock).
+fn compute_passthrough_limit(no_trunc: bool, max_chars: usize) -> usize {
+    if no_trunc {
+        usize::MAX
+    } else {
+        max_chars
+    }
 }
 
 /// Effective passthrough char limit: usize::MAX when no_truncation, else configured limit.
 pub fn passthrough_limit() -> usize {
-    if no_truncation() {
-        usize::MAX
-    } else {
-        limits().passthrough_max_chars
-    }
+    compute_passthrough_limit(no_truncation(), limits().passthrough_max_chars)
 }
 
 impl Config {
@@ -313,29 +317,19 @@ history_days = 90
 
     #[test]
     fn test_passthrough_limit_default() {
-        // When no_truncation is false (default), passthrough_limit should
-        // equal the configured passthrough_max_chars.
         let limits = LimitsConfig::default();
-        // Can't test the cached version (OnceLock is process-scoped),
-        // so verify the logic directly.
-        let no_trunc = false;
-        let result = if no_trunc {
-            usize::MAX
-        } else {
-            limits.passthrough_max_chars
-        };
-        assert_eq!(result, 2000);
+        assert_eq!(
+            compute_passthrough_limit(false, limits.passthrough_max_chars),
+            2000
+        );
     }
 
     #[test]
     fn test_passthrough_limit_no_truncation() {
-        let no_trunc = true;
-        let result = if no_trunc {
+        assert_eq!(
+            compute_passthrough_limit(true, LimitsConfig::default().passthrough_max_chars),
             usize::MAX
-        } else {
-            LimitsConfig::default().passthrough_max_chars
-        };
-        assert_eq!(result, usize::MAX);
+        );
     }
 
     #[test]
