@@ -5,6 +5,17 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Features
+
+* **safety:** add `[safety] no_truncation = true` config flag to disable all lossy truncation ([#1313](https://github.com/rtk-ai/rtk/issues/1313))
+  - When enabled, stages 6 (head/tail_lines) and 7 (max_lines) in the TOML filter pipeline are skipped
+  - All Rust handler limits (`status_max_files`, `grep_max_per_file`, `passthrough_max_chars`, etc.) are bypassed
+  - Lossless operations (ANSI strip, dedup, reformat, line filtering) are preserved
+  - Config is cached per-process via `OnceLock` for zero-overhead access
+  - Emits startup warning when `no_truncation=true` and `[limits]` have been customized
+
 ## [0.36.0](https://github.com/rtk-ai/rtk/compare/v0.35.0...v0.36.0) (2026-04-13)
 
 

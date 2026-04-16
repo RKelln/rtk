@@ -22,8 +22,8 @@ The TOML DSL applies 8 stages in order:
 3. **match_output**: Short-circuit rules (if output matches pattern, return message; `unless` field prevents swallowing errors)
 4. **strip/keep_lines**: Filter lines by regex (mutually exclusive)
 5. **truncate_lines_at**: Truncate each line to N chars (unicode-safe)
-6. **head/tail_lines**: Keep first N or last N lines (with omit message)
-7. **max_lines**: Absolute line cap applied after head/tail
+6. **head/tail_lines**: Keep first N or last N lines (with omit message) — *skipped when `[safety] no_truncation = true`*
+7. **max_lines**: Absolute line cap applied after head/tail — *skipped when `[safety] no_truncation = true`*
 8. **on_empty**: Return message if result is empty after all stages
 
 Three-tier filter lookup (first match wins):
@@ -90,6 +90,13 @@ grep_max_per_file = 25
 status_max_files = 15
 status_max_untracked = 10
 passthrough_max_chars = 2000
+
+[safety]
+no_truncation = false  # When true, all lossy truncation is disabled
+                       # (line caps, result limits, char limits).
+                       # Lossless ops (ANSI strip, dedup, reformat) are preserved.
+                       # Recommended for agent contexts where silent data loss
+                       # causes failures. Overrides [limits] caps.
 ```
 
 ## Shared Utilities (utils.rs)
@@ -122,4 +129,4 @@ Consumers that parse structured output (JSON, NDJSON, state machines) should cal
 For truncation recovery on **success** (e.g., list truncated at 20 items), use `tee::force_tee_hint()` which bypasses the tee mode check and writes regardless of exit code. This ensures LLMs always have a `[full output: ...]` recovery path instead of burning tokens working around missing data.
 
 ## Adding New Functionality
-Place new infrastructure code here if it meets **all** of these criteria: (1) it has no dependencies on command modules or hooks, (2) it is used by two or more other modules, and (3) it provides a general-purpose utility rather than command-specific logic. Follow the existing pattern of lazy-initialized resources (`lazy_static!` for regex, on-demand config loading) to preserve the <10ms startup target. Add `#[cfg(test)] mod tests` with unit tests in the same file.
+Place new infrastructure code here if it meets **all** of these criteria: (1) it has no dependencies on command modules or hooks, (2) it is used by two or more other modules, and (3) it provides a general-purpose utility rather than command-specific logic. Follow the existing pattern of lazy-initialized resources (`lazy_static!` for regex, `OnceLock` for config caching, on-demand loading) to preserve the <10ms startup target. Add `#[cfg(test)] mod tests` with unit tests in the same file.
