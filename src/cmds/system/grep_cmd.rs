@@ -114,6 +114,12 @@ pub fn run(
     let mut files: Vec<_> = by_file.iter().collect();
     files.sort_by_key(|(f, _)| *f);
 
+    let effective_per_file = if config::no_truncation() {
+        usize::MAX
+    } else {
+        config::limits().grep_max_per_file
+    };
+
     for (file, matches) in files {
         if shown >= max_results {
             break;
@@ -122,8 +128,7 @@ pub fn run(
         let file_display = compact_path(file);
         rtk_output.push_str(&format!("[file] {} ({}):\n", file_display, matches.len()));
 
-        let per_file = config::limits().grep_max_per_file;
-        for (line_num, content) in matches.iter().take(per_file) {
+        for (line_num, content) in matches.iter().take(effective_per_file) {
             rtk_output.push_str(&format!("  {:>4}: {}\n", line_num, content));
             shown += 1;
             if shown >= max_results {
@@ -131,8 +136,8 @@ pub fn run(
             }
         }
 
-        if matches.len() > per_file {
-            rtk_output.push_str(&format!("  +{}\n", matches.len() - per_file));
+        if matches.len() > effective_per_file {
+            rtk_output.push_str(&format!("  +{}\n", matches.len() - effective_per_file));
         }
         rtk_output.push('\n');
     }

@@ -4,6 +4,11 @@ use super::constants::{CONFIG_TOML, DEFAULT_HISTORY_DAYS, RTK_DATA_DIR};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+/// Process-scoped cached config values. Loaded once on first access.
+static CACHED_LIMITS: OnceLock<LimitsConfig> = OnceLock::new();
+static CACHED_NO_TRUNCATION: OnceLock<bool> = OnceLock::new();
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -21,6 +26,16 @@ pub struct Config {
     pub hooks: HooksConfig,
     #[serde(default)]
     pub limits: LimitsConfig,
+    #[serde(default)]
+    pub safety: SafetyConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct SafetyConfig {
+    /// When true, disables all lossy truncation (line caps, result limits).
+    /// Lossless operations (ANSI strip, dedup, reformat) are preserved.
+    #[serde(default)]
+    pub no_truncation: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -97,7 +112,7 @@ pub struct TelemetryConfig {
     pub consent_date: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct LimitsConfig {
     /// Max total grep results to show (default: 200)
     pub grep_max_results: usize,
@@ -123,9 +138,29 @@ impl Default for LimitsConfig {
     }
 }
 
-/// Get limits config. Falls back to defaults if config can't be loaded.
-pub fn limits() -> LimitsConfig {
-    Config::load().map(|c| c.limits).unwrap_or_default()
+/// Get limits config (cached per process via `OnceLock`).
+/// Returns a `&'static` reference — callers access fields directly via auto-deref.
+/// Falls back to defaults if config can't be loaded.
+pub fn limits() -> &'static LimitsConfig {
+    CACHED_LIMITS.get_or_init(|| Config::load().map(|c| c.limits).unwrap_or_default())
+}
+
+/// Check if no_truncation safety flag is enabled (cached). Falls back to false.
+pub fn no_truncation() -> bool {
+    *CACHED_NO_TRUNCATION.get_or_init(|| {
+        Config::load()
+            .map(|c| c.safety.no_truncation)
+            .unwrap_or(false)
+    })
+}
+
+/// Effective passthrough char limit: usize::MAX when no_truncation, else configured limit.
+pub fn passthrough_limit() -> usize {
+    if no_truncation() {
+        usize::MAX
+    } else {
+        limits().passthrough_max_chars
+    }
 }
 
 impl Config {
@@ -231,6 +266,89 @@ enabled = true
         let config = Config::default();
         assert!(!config.telemetry.enabled);
         assert!(config.telemetry.consent_given.is_none());
+    }
+
+    #[test]
+    fn test_safety_config_default() {
+        let config = Config::default();
+        assert!(!config.safety.no_truncation);
+    }
+
+    #[test]
+    fn test_safety_config_deserialize_true() {
+        let toml = r#"
+[safety]
+no_truncation = true
+"#;
+        let config: Config = toml::from_str(toml).expect("valid toml");
+        assert!(config.safety.no_truncation);
+    }
+
+    #[test]
+    fn test_safety_config_deserialize_false() {
+        let toml = r#"
+[safety]
+no_truncation = false
+"#;
+        let config: Config = toml::from_str(toml).expect("valid toml");
+        assert!(!config.safety.no_truncation);
+    }
+
+    #[test]
+    fn test_config_without_safety_section_is_valid() {
+        let toml = r#"
+[tracking]
+enabled = true
+history_days = 90
+"#;
+        let config: Config = toml::from_str(toml).expect("valid toml");
+        assert!(!config.safety.no_truncation);
+    }
+
+    #[test]
+    fn test_safety_config_default_no_truncation_is_false() {
+        let safety = SafetyConfig::default();
+        assert!(!safety.no_truncation);
+    }
+
+    #[test]
+    fn test_passthrough_limit_default() {
+        // When no_truncation is false (default), passthrough_limit should
+        // equal the configured passthrough_max_chars.
+        let limits = LimitsConfig::default();
+        // Can't test the cached version (OnceLock is process-scoped),
+        // so verify the logic directly.
+        let no_trunc = false;
+        let result = if no_trunc {
+            usize::MAX
+        } else {
+            limits.passthrough_max_chars
+        };
+        assert_eq!(result, 2000);
+    }
+
+    #[test]
+    fn test_passthrough_limit_no_truncation() {
+        let no_trunc = true;
+        let result = if no_trunc {
+            usize::MAX
+        } else {
+            LimitsConfig::default().passthrough_max_chars
+        };
+        assert_eq!(result, usize::MAX);
+    }
+
+    #[test]
+    fn test_limits_config_partial_eq() {
+        let a = LimitsConfig::default();
+        let b = LimitsConfig::default();
+        assert_eq!(a, b);
+
+        let c = LimitsConfig {
+            grep_max_results: 999,
+            ..LimitsConfig::default()
+        };
+        assert_ne!(a, c);
     }
 
     #[test]

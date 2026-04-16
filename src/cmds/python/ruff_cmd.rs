@@ -104,7 +104,7 @@ pub fn filter_ruff_check_json(output: &str) -> String {
             return format!(
                 "Ruff check (JSON parse failed: {})\n{}",
                 e,
-                truncate(output, config::limits().passthrough_max_chars)
+                truncate(output, config::passthrough_limit())
             );
         }
     };

@@ -1136,7 +1136,11 @@ fn run_fallback(parse_error: clap::Error) -> Result<i32> {
                     None
                 };
 
-                let filtered = core::toml_filter::apply_filter(filter, &combined_raw);
+                let filtered = core::toml_filter::apply_filter_with_safety(
+                    filter,
+                    &combined_raw,
+                    core::config::no_truncation(),
+                );
                 println!("{}", filtered);
                 if let Some(hint) = tee_hint {
                     println!("{}", hint);
@@ -1306,6 +1310,14 @@ fn run_cli() -> Result<i32> {
     // because they don't go through the hook pipeline.
     if is_operational_command(&cli.command) {
         hooks::integrity::runtime_check()?;
+
+        // Warn if no_truncation is enabled but [limits] have been customized
+        // (meaning the user set limits that will silently have no effect).
+        if core::config::no_truncation()
+            && *core::config::limits() != core::config::LimitsConfig::default()
+        {
+            eprintln!("[rtk] note: [safety] no_truncation=true \u{2014} [limits] caps are ignored");
+        }
     }
 
     let code = match cli.command {
