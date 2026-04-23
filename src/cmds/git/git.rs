@@ -691,13 +691,13 @@ fn format_status_output(porcelain: &str) -> String {
 
     // Build summary
     let limits = config::limits();
-    let no_trunc = config::no_truncation();
-    let max_files = if no_trunc {
+    let lossless = config::lossless();
+    let max_files = if lossless {
         usize::MAX
     } else {
         limits.status_max_files
     };
-    let max_untracked = if no_trunc {
+    let max_untracked = if lossless {
         usize::MAX
     } else {
         limits.status_max_untracked

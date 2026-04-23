@@ -278,7 +278,7 @@ fn filter_cargo_install(output: &str) -> String {
         }
         result.push_str("═══════════════════════════════════════\n");
 
-        let error_cap = if config::no_truncation() {
+        let error_cap = if config::lossless() {
             usize::MAX
         } else {
             15
@@ -627,7 +627,7 @@ fn filter_cargo_build(output: &str) -> String {
     ));
     result.push_str("═══════════════════════════════════════\n");
 
-    let error_cap = if config::no_truncation() {
+    let error_cap = if config::lossless() {
         usize::MAX
     } else {
         15
@@ -839,16 +839,9 @@ fn filter_cargo_test(output: &str) -> String {
     if !failures.is_empty() {
         result.push_str(&format!("FAILURES ({}):\n", failures.len()));
         result.push_str("═══════════════════════════════════════\n");
-        let failure_cap = if config::no_truncation() {
-            usize::MAX
-        } else {
-            10
-        };
-        let failure_line_len = if config::no_truncation() {
-            usize::MAX
-        } else {
-            200
-        };
+        let lossless = config::lossless();
+        let failure_cap = if lossless { usize::MAX } else { 10 };
+        let failure_line_len = if lossless { usize::MAX } else { 200 };
         for (i, failure) in failures.iter().enumerate().take(failure_cap) {
             result.push_str(&format!(
                 "{}. {}\n",
@@ -1007,11 +1000,11 @@ fn filter_cargo_clippy(output: &str) -> String {
     ));
     result.push_str("═══════════════════════════════════════\n");
 
-    let no_trunc = config::no_truncation();
-    let block_cap = if no_trunc { usize::MAX } else { 10 };
-    let line_cap = if no_trunc { usize::MAX } else { 160 };
-    let rule_cap = if no_trunc { usize::MAX } else { 15 };
-    let loc_cap = if no_trunc { usize::MAX } else { 3 };
+    let lossless = config::lossless();
+    let block_cap = if lossless { usize::MAX } else { 10 };
+    let line_cap = if lossless { usize::MAX } else { 160 };
+    let rule_cap = if lossless { usize::MAX } else { 15 };
+    let loc_cap = if lossless { usize::MAX } else { 3 };
 
     // Show full error blocks so developers can see what needs fixing
     if !error_blocks.is_empty() {

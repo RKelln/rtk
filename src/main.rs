@@ -65,6 +65,13 @@ struct Cli {
     #[arg(long, global = true)]
     ultra_compact: bool,
 
+    /// Apply only lossless operations for this invocation (ANSI strip, dedup, reformat).
+    /// Disables all lossy truncation (line caps, result limits).
+    /// Equivalent to [limits] lossless = true in config.
+    /// Useful in pipelines or CI where no config file is available.
+    #[arg(long = "lossless", global = true)]
+    lossless: bool,
+
     /// Set SKIP_ENV_VALIDATION=1 for child processes (Next.js, tsc, lint, prisma)
     #[arg(long = "skip-env", global = true)]
     skip_env: bool,
@@ -1139,7 +1146,7 @@ fn run_fallback(parse_error: clap::Error) -> Result<i32> {
                 let filtered = core::toml_filter::apply_filter_with_safety(
                     filter,
                     &combined_raw,
-                    core::config::no_truncation(),
+                    core::config::lossless(),
                 );
                 println!("{}", filtered);
                 if let Some(hint) = tee_hint {
@@ -1305,15 +1312,21 @@ fn run_cli() -> Result<i32> {
         hooks::hook_check::maybe_warn();
     }
 
+    // CLI flag --lossless overrides config file setting for this invocation.
+    // Must be set before any filter module reads lossless().
+    if cli.lossless {
+        core::config::enable_lossless_for_process();
+    }
+
     // Runtime integrity check for operational commands.
     // Meta commands (init, gain, verify, config, etc.) skip the check
     // because they don't go through the hook pipeline.
     if is_operational_command(&cli.command) {
         hooks::integrity::runtime_check()?;
 
-        // Warn if no_truncation is enabled but numeric [limits] have been customized
+        // Warn if lossless mode is enabled but numeric [limits] have been customized
         // (meaning the user set limits that will silently have no effect).
-        if core::config::no_truncation() {
+        if core::config::lossless() {
             let current = core::config::limits();
             let defaults = core::config::LimitsConfig::default();
             if current.grep_max_results != defaults.grep_max_results
@@ -1322,9 +1335,7 @@ fn run_cli() -> Result<i32> {
                 || current.status_max_untracked != defaults.status_max_untracked
                 || current.passthrough_max_chars != defaults.passthrough_max_chars
             {
-                eprintln!(
-                    "[rtk] note: [limits] no_truncation=true \u{2014} custom limits are ignored"
-                );
+                eprintln!("[rtk] note: [limits] lossless=true \u{2014} custom limits are ignored");
             }
         }
     }

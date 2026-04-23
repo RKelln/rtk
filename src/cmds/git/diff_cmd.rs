@@ -393,7 +393,7 @@ diff --git a/b.rs b/b.rs
     }
 
     #[test]
-    fn test_no_truncation_large_diff() {
+    fn test_lossless_large_diff() {
         // Verify compute_diff returns all changes without truncation
         let mut a = Vec::new();
         let mut b = Vec::new();

@@ -9,6 +9,15 @@ use std::sync::OnceLock;
 /// Process-scoped cached config. Loaded once on first access, avoids repeated disk I/O.
 static CACHED_CONFIG: OnceLock<Config> = OnceLock::new();
 
+/// CLI-level override for lossless mode. Set before any filter runs; takes priority over config.
+static LOSSLESS_OVERRIDE: OnceLock<bool> = OnceLock::new();
+
+/// Call once (from main, after CLI parsing) to enable lossless mode for this process.
+/// Has no effect if called after the first call to `lossless()`.
+pub fn enable_lossless_for_process() {
+    let _ = LOSSLESS_OVERRIDE.set(true);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -103,10 +112,10 @@ pub struct TelemetryConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LimitsConfig {
-    /// When true, disables all lossy truncation (line caps, result limits).
-    /// Lossless operations (ANSI strip, dedup, reformat) are preserved.
+    /// When true, applies only lossless operations (ANSI strip, dedup, reformat).
+    /// Disables all lossy truncation (line caps, result limits).
     #[serde(default)]
-    pub no_truncation: bool,
+    pub lossless: bool,
     /// Max total grep results to show (default: 200)
     #[serde(default = "default_grep_max_results")]
     pub grep_max_results: usize,
@@ -143,7 +152,7 @@ fn default_passthrough_max_chars() -> usize {
 impl Default for LimitsConfig {
     fn default() -> Self {
         Self {
-            no_truncation: false,
+            lossless: false,
             grep_max_results: 200,
             grep_max_per_file: 25,
             status_max_files: 15,
@@ -164,23 +173,54 @@ pub fn limits() -> &'static LimitsConfig {
     &cached_config().limits
 }
 
-/// Check if no_truncation flag is enabled (cached). Falls back to false.
-pub fn no_truncation() -> bool {
-    cached_config().limits.no_truncation
+/// Check if lossless mode is enabled. CLI flag (`--lossless`) takes priority over config.
+pub fn lossless() -> bool {
+    if let Some(&override_val) = LOSSLESS_OVERRIDE.get() {
+        return override_val;
+    }
+    cached_config().limits.lossless
 }
 
 /// Compute effective passthrough limit from components (testable without OnceLock).
-fn compute_passthrough_limit(no_trunc: bool, max_chars: usize) -> usize {
-    if no_trunc {
+fn compute_passthrough_limit(is_lossless: bool, max_chars: usize) -> usize {
+    if is_lossless {
         usize::MAX
     } else {
         max_chars
     }
 }
 
-/// Effective passthrough char limit: usize::MAX when no_truncation, else configured limit.
+/// Effective passthrough char limit: usize::MAX when lossless, else configured limit.
 pub fn passthrough_limit() -> usize {
-    compute_passthrough_limit(no_truncation(), limits().passthrough_max_chars)
+    compute_passthrough_limit(lossless(), limits().passthrough_max_chars)
+}
+
+/// Returns `usize::MAX` in lossless mode, otherwise `n`.
+///
+/// Use this for **every** output item cap (line counts, result counts, error limits) so
+/// `--lossless` / `lossless = true` is respected automatically.
+///
+/// # Examples
+/// ```
+/// // Loop over all errors in lossless mode, or at most 10 otherwise.
+/// for err in errors.iter().take(config::lossless_cap(10)) { ... }
+///
+/// // With a footer:
+/// let cap = config::lossless_cap(10);
+/// for err in errors.iter().take(cap) { ... }
+/// if errors.len() > cap { result.push_str(&format!("... +{} more\n", errors.len() - cap)); }
+/// ```
+///
+/// **Do NOT use this for:**
+/// - `chars().take(N)` line-width display truncation — always active
+/// - top-N stat summaries ("Top linters", "Top files") — intentional summarization
+/// - internal pipeline data structures not shown to the user
+pub fn lossless_cap(n: usize) -> usize {
+    if lossless() {
+        usize::MAX
+    } else {
+        n
+    }
 }
 
 impl Config {
@@ -289,40 +329,40 @@ enabled = true
     }
 
     #[test]
-    fn test_no_truncation_default() {
+    fn test_lossless_default() {
         let config = Config::default();
-        assert!(!config.limits.no_truncation);
+        assert!(!config.limits.lossless);
     }
 
     #[test]
-    fn test_no_truncation_deserialize_true() {
+    fn test_lossless_deserialize_true() {
         let toml = r#"
 [limits]
-no_truncation = true
+lossless = true
 "#;
         let config: Config = toml::from_str(toml).expect("valid toml");
-        assert!(config.limits.no_truncation);
+        assert!(config.limits.lossless);
     }
 
     #[test]
-    fn test_no_truncation_deserialize_false() {
+    fn test_lossless_deserialize_false() {
         let toml = r#"
 [limits]
-no_truncation = false
+lossless = false
 "#;
         let config: Config = toml::from_str(toml).expect("valid toml");
-        assert!(!config.limits.no_truncation);
+        assert!(!config.limits.lossless);
     }
 
     #[test]
-    fn test_config_without_limits_section_defaults_no_truncation() {
+    fn test_config_without_limits_section_defaults_lossless() {
         let toml = r#"
 [tracking]
 enabled = true
 history_days = 90
 "#;
         let config: Config = toml::from_str(toml).expect("valid toml");
-        assert!(!config.limits.no_truncation);
+        assert!(!config.limits.lossless);
     }
 
     #[test]
@@ -337,8 +377,8 @@ no_truncation = true
 grep_max_results = 200
 "#;
         let config: Config = toml::from_str(toml).expect("valid toml");
-        // The old [safety] section is silently ignored
-        assert!(!config.limits.no_truncation);
+        // The old [safety] section is silently ignored; lossless defaults to false
+        assert!(!config.limits.lossless);
         assert_eq!(config.limits.grep_max_results, 200);
     }
 
@@ -352,7 +392,7 @@ grep_max_results = 200
     }
 
     #[test]
-    fn test_passthrough_limit_no_truncation() {
+    fn test_passthrough_limit_lossless() {
         assert_eq!(
             compute_passthrough_limit(true, LimitsConfig::default().passthrough_max_chars),
             usize::MAX

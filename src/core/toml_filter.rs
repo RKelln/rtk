@@ -437,15 +437,11 @@ pub fn apply_filter(filter: &CompiledFilter, stdout: &str) -> String {
     apply_filter_with_safety(filter, stdout, false)
 }
 
-/// Like `apply_filter`, but when `no_truncation` is true, stages 6 (head/tail)
+/// Like `apply_filter`, but when `lossless` is true, stages 6 (head/tail)
 /// and 7 (max_lines) are skipped — preserving all output lines.
 /// Note: stage 5 (`truncate_lines_at`) is intentionally NOT skipped; it caps
 /// individual line *width*, which is a display concern, not a data-loss concern.
-pub fn apply_filter_with_safety(
-    filter: &CompiledFilter,
-    stdout: &str,
-    no_truncation: bool,
-) -> String {
+pub fn apply_filter_with_safety(filter: &CompiledFilter, stdout: &str, lossless: bool) -> String {
     let mut lines: Vec<String> = stdout.lines().map(String::from).collect();
 
     // 1. strip_ansi
@@ -503,8 +499,8 @@ pub fn apply_filter_with_safety(
             .collect();
     }
 
-    // 6. head + tail (skipped when no_truncation is true)
-    if !no_truncation {
+    // 6. head + tail (skipped when lossless is true)
+    if !lossless {
         let total = lines.len();
         if let (Some(head), Some(tail)) = (filter.head_lines, filter.tail_lines) {
             if total > head + tail {
@@ -527,8 +523,8 @@ pub fn apply_filter_with_safety(
         }
     }
 
-    // 7. max_lines — absolute cap applied after head/tail (skipped when no_truncation is true)
-    if !no_truncation {
+    // 7. max_lines — absolute cap applied after head/tail (skipped when lossless is true)
+    if !lossless {
         if let Some(max) = filter.max_lines {
             if lines.len() > max {
                 let truncated = lines.len() - max;
@@ -1711,10 +1707,10 @@ expected = "output line 1\noutput line 2"
         assert_eq!(found.unwrap().name, "my-new-tool");
     }
 
-    // --- no_truncation [limits] flag tests ---
+    // --- lossless [limits] flag tests ---
 
     #[test]
-    fn test_no_truncation_preserves_all_lines_with_max_lines() {
+    fn test_lossless_preserves_all_lines_with_max_lines() {
         let f = first_filter(
             r#"
 schema_version = 1
@@ -1732,13 +1728,13 @@ max_lines = 3
         assert_eq!(
             out.lines().count(),
             100,
-            "no_truncation=true should preserve all 100 lines"
+            "lossless=true should preserve all 100 lines"
         );
         assert!(!out.contains("truncated"), "no truncation message expected");
     }
 
     #[test]
-    fn test_no_truncation_false_still_truncates() {
+    fn test_lossless_false_still_truncates() {
         let f = first_filter(
             r#"
 schema_version = 1
@@ -1752,15 +1748,12 @@ max_lines = 3
             .collect::<Vec<_>>()
             .join("\n");
         let out = apply_filter_with_safety(&f, &input, false);
-        assert!(
-            out.lines().count() < 100,
-            "no_truncation=false should truncate"
-        );
+        assert!(out.lines().count() < 100, "lossless=false should truncate");
         assert!(out.contains("truncated"));
     }
 
     #[test]
-    fn test_no_truncation_preserves_all_lines_with_head_lines() {
+    fn test_lossless_preserves_all_lines_with_head_lines() {
         let f = first_filter(
             r#"
 schema_version = 1
@@ -1773,12 +1766,12 @@ head_lines = 2
         let out = apply_filter_with_safety(&f, input, true);
         assert_eq!(
             out, "a\nb\nc\nd\ne",
-            "no_truncation=true should preserve all lines"
+            "lossless=true should preserve all lines"
         );
     }
 
     #[test]
-    fn test_no_truncation_preserves_all_lines_with_tail_lines() {
+    fn test_lossless_preserves_all_lines_with_tail_lines() {
         let f = first_filter(
             r#"
 schema_version = 1
@@ -1791,13 +1784,13 @@ tail_lines = 2
         let out = apply_filter_with_safety(&f, input, true);
         assert_eq!(
             out, "a\nb\nc\nd\ne",
-            "no_truncation=true should preserve all lines"
+            "lossless=true should preserve all lines"
         );
     }
 
     #[test]
-    fn test_no_truncation_keeps_lossless_stages() {
-        // strip_ansi and strip_lines should still work with no_truncation
+    fn test_lossless_keeps_lossless_stages() {
+        // strip_ansi and strip_lines should still work with lossless mode
         let f = first_filter(
             r#"
 schema_version = 1

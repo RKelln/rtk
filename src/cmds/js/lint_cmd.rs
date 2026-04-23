@@ -463,9 +463,9 @@ fn filter_generic_lint(output: &str) -> String {
     result.push_str(&format!("Lint: {} errors, {} warnings\n", errors, warnings));
     result.push_str("═══════════════════════════════════════\n");
 
-    let no_trunc = config::no_truncation();
-    let max_issues = if no_trunc { usize::MAX } else { 20 };
-    let max_issue_chars = if no_trunc { usize::MAX } else { 100 };
+    let lossless = config::lossless();
+    let max_issues = if lossless { usize::MAX } else { 20 };
+    let max_issue_chars = if lossless { usize::MAX } else { 100 };
 
     for issue in issues.iter().take(max_issues) {
         result.push_str(&format!("{}\n", truncate(issue, max_issue_chars)));

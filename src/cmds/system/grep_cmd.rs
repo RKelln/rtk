@@ -114,7 +114,7 @@ pub fn run(
     let mut files: Vec<_> = by_file.iter().collect();
     files.sort_by_key(|(f, _)| *f);
 
-    let effective_per_file = if config::no_truncation() {
+    let effective_per_file = if config::lossless() {
         usize::MAX
     } else {
         config::limits().grep_max_per_file

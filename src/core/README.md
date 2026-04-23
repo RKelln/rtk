@@ -22,8 +22,8 @@ The TOML DSL applies 8 stages in order:
 3. **match_output**: Short-circuit rules (if output matches pattern, return message; `unless` field prevents swallowing errors)
 4. **strip/keep_lines**: Filter lines by regex (mutually exclusive)
 5. **truncate_lines_at**: Truncate each line to N chars (unicode-safe)
-6. **head/tail_lines**: Keep first N or last N lines (with omit message) — *skipped when `[limits] no_truncation = true`*
-7. **max_lines**: Absolute line cap applied after head/tail — *skipped when `[limits] no_truncation = true`*
+6. **head/tail_lines**: Keep first N or last N lines (with omit message) — *skipped when `[limits] lossless = true`*
+7. **max_lines**: Absolute line cap applied after head/tail — *skipped when `[limits] lossless = true`*
 8. **on_empty**: Return message if result is empty after all stages
 
 Three-tier filter lookup (first match wins):
@@ -90,7 +90,7 @@ grep_max_per_file = 25
 status_max_files = 15
 status_max_untracked = 10
 passthrough_max_chars = 2000
-no_truncation = false  # When true, all lossy truncation is disabled
+lossless = false  # When true, all lossy truncation is disabled
                        # (line caps, result limits, char limits).
                        # Lossless ops (ANSI strip, dedup, reformat) are preserved.
                        # Recommended for agent contexts where silent data loss
