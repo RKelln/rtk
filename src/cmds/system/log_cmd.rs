@@ -1,5 +1,6 @@
 //! Deduplicates repeated log lines and shows counts instead.
 
+use crate::core::config;
 use crate::core::tracking;
 use anyhow::Result;
 use lazy_static::lazy_static;
@@ -129,7 +130,7 @@ fn analyze_logs(content: &str) -> String {
         let mut error_list: Vec<_> = error_counts.iter().collect();
         error_list.sort_by(|a, b| b.1.cmp(a.1));
 
-        for (normalized, count) in error_list.iter().take(10) {
+        for (normalized, count) in error_list.iter().take(config::lossless_cap(10)) {
             // Find original message
             let original = unique_errors
                 .iter()
@@ -141,7 +142,7 @@ fn analyze_logs(content: &str) -> String {
                 .unwrap_or(normalized);
 
             let truncated = if original.len() > 100 {
-                let t: String = original.chars().take(97).collect();
+                let t: String = original.chars().take(97).collect(); // display
                 format!("{}...", t)
             } else {
                 original.to_string()
@@ -154,10 +155,10 @@ fn analyze_logs(content: &str) -> String {
             }
         }
 
-        if error_list.len() > 10 {
+        if error_list.len() > config::lossless_cap(10) {
             result.push(format!(
                 "   ... +{} more unique errors",
-                error_list.len() - 10
+                error_list.len() - config::lossless_cap(10)
             ));
         }
         result.push(String::new());
@@ -170,7 +171,7 @@ fn analyze_logs(content: &str) -> String {
         let mut warn_list: Vec<_> = warn_counts.iter().collect();
         warn_list.sort_by(|a, b| b.1.cmp(a.1));
 
-        for (normalized, count) in warn_list.iter().take(5) {
+        for (normalized, count) in warn_list.iter().take(config::lossless_cap(5)) {
             let original = unique_warnings
                 .iter()
                 .find(|w| {
@@ -181,7 +182,7 @@ fn analyze_logs(content: &str) -> String {
                 .unwrap_or(normalized);
 
             let truncated = if original.len() > 100 {
-                let t: String = original.chars().take(97).collect();
+                let t: String = original.chars().take(97).collect(); // display
                 format!("{}...", t)
             } else {
                 original.to_string()
@@ -194,10 +195,10 @@ fn analyze_logs(content: &str) -> String {
             }
         }
 
-        if warn_list.len() > 5 {
+        if warn_list.len() > config::lossless_cap(5) {
             result.push(format!(
                 "   ... +{} more unique warnings",
-                warn_list.len() - 5
+                warn_list.len() - config::lossless_cap(5)
             ));
         }
     }

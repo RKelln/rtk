@@ -123,7 +123,7 @@ fn filter_tsc_output(output: &str) -> String {
     if code_counts.len() > 1 {
         let codes_str: Vec<String> = code_counts
             .iter()
-            .take(5)
+            .take(5) // summarization
             .map(|(code, count)| format!("{} ({}x)", code, count))
             .collect();
         result.push_str(&format!("Top codes: {}\n\n", codes_str.join(", ")));

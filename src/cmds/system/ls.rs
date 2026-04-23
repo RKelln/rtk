@@ -217,7 +217,7 @@ fn compact_ls(raw: &str, show_all: bool) -> (String, String) {
         ext_counts.sort_by(|a, b| b.1.cmp(a.1));
         let ext_parts: Vec<String> = ext_counts
             .iter()
-            .take(5)
+            .take(5) // summarization
             .map(|(ext, count)| format!("{} {}", count, ext))
             .collect();
         summary.push_str(" (");

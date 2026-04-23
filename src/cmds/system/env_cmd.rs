@@ -1,5 +1,6 @@
 //! Filters environment variables, hiding secrets and noise.
 
+use crate::core::config;
 use crate::core::tracking;
 use anyhow::Result;
 use std::collections::HashSet;
@@ -41,7 +42,7 @@ pub fn run(filter: Option<&str>, show_all: bool, verbose: u8) -> Result<()> {
         let display_value = if is_sensitive && !show_all {
             mask_value(value)
         } else if value.len() > 100 {
-            let preview: String = value.chars().take(50).collect();
+            let preview: String = value.chars().take(50).collect(); // display
             format!("{}... ({} chars)", preview, value.chars().count())
         } else {
             value.clone()
@@ -71,11 +72,11 @@ pub fn run(filter: Option<&str>, show_all: bool, verbose: u8) -> Result<()> {
                 // Split PATH for readability
                 let paths: Vec<&str> = v.split(':').collect();
                 println!("  PATH ({} entries):", paths.len());
-                for p in paths.iter().take(5) {
+                for p in paths.iter().take(config::lossless_cap(5)) {
                     println!("    {}", p);
                 }
-                if paths.len() > 5 {
-                    println!("    ... +{} more", paths.len() - 5);
+                if paths.len() > config::lossless_cap(5) {
+                    println!("    ... +{} more", paths.len() - config::lossless_cap(5));
                 }
             } else {
                 println!("  {}={}", k, v);
@@ -106,11 +107,11 @@ pub fn run(filter: Option<&str>, show_all: bool, verbose: u8) -> Result<()> {
 
     if !other_vars.is_empty() {
         println!("\nOther:");
-        for (k, v) in other_vars.iter().take(20) {
+        for (k, v) in other_vars.iter().take(config::lossless_cap(20)) {
             println!("  {}={}", k, v);
         }
-        if other_vars.len() > 20 {
-            println!("  ... +{} more", other_vars.len() - 20);
+        if other_vars.len() > config::lossless_cap(20) {
+            println!("  ... +{} more", other_vars.len() - config::lossless_cap(20));
         }
     }
 
@@ -119,7 +120,7 @@ pub fn run(filter: Option<&str>, show_all: bool, verbose: u8) -> Result<()> {
         + lang_vars.len()
         + cloud_vars.len()
         + tool_vars.len()
-        + other_vars.len().min(20);
+        + other_vars.len().min(config::lossless_cap(20));
     if filter.is_none() {
         println!("\nTotal: {} vars (showing {} relevant)", total, shown);
     }

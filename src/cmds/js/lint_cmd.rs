@@ -178,7 +178,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
         if !stderr.is_empty() {
             eprintln!(
                 "stderr: {}",
-                stderr.lines().take(5).collect::<Vec<_>>().join("\n")
+                stderr.lines().take(5).collect::<Vec<_>>().join("\n") // internal
             );
         }
         return Ok(crate::core::utils::exit_code_from_output(&output, "eslint"));
@@ -285,7 +285,7 @@ fn filter_eslint_json(output: &str) -> String {
 
     if !rule_counts.is_empty() {
         result.push_str("Top rules:\n");
-        for (rule, count) in rule_counts.iter().take(10) {
+        for (rule, count) in rule_counts.iter().take(10) { // summarization
             result.push_str(&format!("  {} ({}x)\n", rule, count));
         }
         result.push('\n');
@@ -293,7 +293,7 @@ fn filter_eslint_json(output: &str) -> String {
 
     // Show top files with most issues
     result.push_str("Top files:\n");
-    for (file_result, count) in by_file.iter().take(10) {
+    for (file_result, count) in by_file.iter().take(10) { // summarization
         let short_path = compact_path(&file_result.file_path);
         result.push_str(&format!("  {} ({} issues)\n", short_path, count));
 
@@ -308,7 +308,7 @@ fn filter_eslint_json(output: &str) -> String {
         let mut file_rule_counts: Vec<_> = file_rules.iter().collect();
         file_rule_counts.sort_by(|a, b| b.1.cmp(a.1));
 
-        for (rule, count) in file_rule_counts.iter().take(3) {
+        for (rule, count) in file_rule_counts.iter().take(3) { // summarization
             result.push_str(&format!("    {} ({})\n", rule, count));
         }
     }
@@ -403,7 +403,7 @@ fn filter_pylint_json(output: &str) -> String {
 
     if !symbol_counts.is_empty() {
         result.push_str("Top rules:\n");
-        for (symbol, count) in symbol_counts.iter().take(10) {
+        for (symbol, count) in symbol_counts.iter().take(10) { // summarization
             result.push_str(&format!("  {} ({}x)\n", symbol, count));
         }
         result.push('\n');
@@ -411,7 +411,7 @@ fn filter_pylint_json(output: &str) -> String {
 
     // Show top files
     result.push_str("Top files:\n");
-    for (file, count) in file_counts.iter().take(10) {
+    for (file, count) in file_counts.iter().take(10) { // summarization
         let short_path = compact_path(file);
         result.push_str(&format!("  {} ({} issues)\n", short_path, count));
 
@@ -425,7 +425,7 @@ fn filter_pylint_json(output: &str) -> String {
         let mut file_symbol_counts: Vec<_> = file_symbols.iter().collect();
         file_symbol_counts.sort_by(|a, b| b.1.cmp(a.1));
 
-        for (symbol, count) in file_symbol_counts.iter().take(3) {
+        for (symbol, count) in file_symbol_counts.iter().take(3) { // summarization
             result.push_str(&format!("    {} ({})\n", symbol, count));
         }
     }

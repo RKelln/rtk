@@ -85,7 +85,7 @@ fn analyze_code(content: &str, lang: &Language) -> CodeSummary {
 
     // Main imports/dependencies
     if !imports.is_empty() {
-        let key_imports: Vec<&str> = imports.iter().take(3).map(|s| s.as_str()).collect();
+        let key_imports: Vec<&str> = imports.iter().take(3).map(|s| s.as_str()).collect(); // internal
         details.push(format!("uses: {}", key_imports.join(", ")));
     }
 
@@ -96,7 +96,7 @@ fn analyze_code(content: &str, lang: &Language) -> CodeSummary {
 
     // Main functions/structs
     if !functions.is_empty() {
-        let key_fns: Vec<&str> = functions.iter().take(3).map(|s| s.as_str()).collect();
+        let key_fns: Vec<&str> = functions.iter().take(3).map(|s| s.as_str()).collect(); // internal
         if details.is_empty() {
             details.push(format!("defines: {}", key_fns.join(", ")));
         }
@@ -156,7 +156,7 @@ fn extract_imports(content: &str, lang: &Language) -> Vec<String> {
         }
     }
 
-    imports.into_iter().take(5).collect()
+    imports.into_iter().take(5).collect() // internal
 }
 
 fn is_std_import(name: &str, lang: &Language) -> bool {
@@ -192,7 +192,7 @@ fn extract_functions(content: &str, lang: &Language) -> Vec<String> {
         }
     }
 
-    functions.into_iter().take(10).collect()
+    functions.into_iter().take(10).collect() // internal
 }
 
 fn extract_structs(content: &str, lang: &Language) -> Vec<String> {
@@ -208,7 +208,7 @@ fn extract_structs(content: &str, lang: &Language) -> Vec<String> {
     let re = Regex::new(pattern).unwrap();
     re.captures_iter(content)
         .filter_map(|caps| caps.get(1).map(|m| m.as_str().to_string()))
-        .take(10)
+        .take(10) // internal
         .collect()
 }
 
@@ -222,7 +222,7 @@ fn extract_traits(content: &str, lang: &Language) -> Vec<String> {
     let re = Regex::new(pattern).unwrap();
     re.captures_iter(content)
         .filter_map(|caps| caps.get(1).map(|m| m.as_str().to_string()))
-        .take(5)
+        .take(5) // internal
         .collect()
 }
 
@@ -271,7 +271,7 @@ fn detect_patterns(content: &str, lang: &Language) -> Vec<String> {
         _ => {}
     }
 
-    patterns.into_iter().take(3).collect()
+    patterns.into_iter().take(3).collect() // internal
 }
 
 #[cfg(test)]

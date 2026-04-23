@@ -5,6 +5,7 @@
 //! (e.g., user specified `--format documentation`) or when injected JSON output
 //! fails to parse.
 
+use crate::core::config;
 use crate::core::runner;
 use crate::core::utils::{fallback_tail, ruby_exec, truncate};
 use anyhow::Result;
@@ -224,7 +225,7 @@ fn build_rspec_summary(rspec: &RspecOutput) -> String {
 
     result.push_str("\nFailures:\n");
 
-    for (i, example) in failures.iter().take(5).enumerate() {
+    for (i, example) in failures.iter().take(config::lossless_cap(5)).enumerate() {
         result.push_str(&format!(
             "{}. ❌ {}\n   {}:{}\n",
             i + 1,
@@ -256,8 +257,8 @@ fn build_rspec_summary(rspec: &RspecOutput) -> String {
         }
     }
 
-    if failures.len() > 5 {
-        result.push_str(&format!("\n... +{} more failures\n", failures.len() - 5));
+    if failures.len() > config::lossless_cap(5) {
+        result.push_str(&format!("\n... +{} more failures\n", failures.len() - config::lossless_cap(5)));
     }
 
     result.trim().to_string()
@@ -347,14 +348,14 @@ fn filter_rspec_text(output: &str) -> String {
         }
         let mut result = format!("RSpec: {}\n", summary_line);
         result.push_str("═══════════════════════════════════════\n\n");
-        for (i, failure) in failures.iter().take(5).enumerate() {
+        for (i, failure) in failures.iter().take(config::lossless_cap(5)).enumerate() {
             result.push_str(&format!("{}. ❌ {}\n", i + 1, failure));
-            if i < failures.len().min(5) - 1 {
+            if i < failures.len().min(config::lossless_cap(5)) - 1 {
                 result.push('\n');
             }
         }
-        if failures.len() > 5 {
-            result.push_str(&format!("\n... +{} more failures\n", failures.len() - 5));
+        if failures.len() > config::lossless_cap(5) {
+            result.push_str(&format!("\n... +{} more failures\n", failures.len() - config::lossless_cap(5)));
         }
         return result.trim().to_string();
     }

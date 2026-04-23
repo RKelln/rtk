@@ -155,7 +155,7 @@ pub fn filter_ruff_check_json(output: &str) -> String {
 
     if !rule_counts.is_empty() {
         result.push_str("Top rules:\n");
-        for (rule, count) in rule_counts.iter().take(10) {
+        for (rule, count) in rule_counts.iter().take(10) { // summarization
             result.push_str(&format!("  {} ({}x)\n", rule, count));
         }
         result.push('\n');
@@ -163,7 +163,7 @@ pub fn filter_ruff_check_json(output: &str) -> String {
 
     // Show top files
     result.push_str("Top files:\n");
-    for (file, count) in file_counts.iter().take(10) {
+    for (file, count) in file_counts.iter().take(10) { // summarization
         let short_path = compact_path(file);
         result.push_str(&format!("  {} ({} issues)\n", short_path, count));
 
@@ -176,7 +176,7 @@ pub fn filter_ruff_check_json(output: &str) -> String {
         let mut file_rule_counts: Vec<_> = file_rules.iter().collect();
         file_rule_counts.sort_by(|a, b| b.1.cmp(a.1));
 
-        for (rule, count) in file_rule_counts.iter().take(3) {
+        for (rule, count) in file_rule_counts.iter().take(3) { // summarization
             result.push_str(&format!("    {} ({})\n", rule, count));
         }
     }
@@ -256,14 +256,14 @@ pub fn filter_ruff_format(output: &str) -> String {
             ));
             result.push_str("═══════════════════════════════════════\n");
 
-            for (i, file) in files_to_format.iter().take(10).enumerate() {
+            for (i, file) in files_to_format.iter().take(config::lossless_cap(10)).enumerate() {
                 result.push_str(&format!("{}. {}\n", i + 1, compact_path(file)));
             }
 
-            if files_to_format.len() > 10 {
+            if files_to_format.len() > config::lossless_cap(10) {
                 result.push_str(&format!(
                     "\n... +{} more files\n",
-                    files_to_format.len() - 10
+                    files_to_format.len() - config::lossless_cap(10)
                 ));
             }
 

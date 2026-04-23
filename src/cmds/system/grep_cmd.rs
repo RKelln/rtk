@@ -197,7 +197,7 @@ fn clean_line(line: &str, max_len: usize, context_re: Option<&Regex>, pattern: &
                 format!("{}...", slice)
             }
         } else {
-            let t: String = trimmed.chars().take(max_len - 3).collect();
+            let t: String = trimmed.chars().take(max_len - 3).collect(); // display
             format!("{}...", t)
         }
     }

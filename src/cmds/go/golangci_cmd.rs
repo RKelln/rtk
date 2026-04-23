@@ -317,7 +317,7 @@ pub(crate) fn filter_golangci_json(output: &str, version: u32) -> String {
 
     if !linter_counts.is_empty() {
         result.push_str("Top linters:\n");
-        for (linter, count) in linter_counts.iter().take(10) {
+        for (linter, count) in linter_counts.iter().take(10) { // summarization
             result.push_str(&format!("  {} ({}x)\n", linter, count));
         }
         result.push('\n');
@@ -325,7 +325,7 @@ pub(crate) fn filter_golangci_json(output: &str, version: u32) -> String {
 
     // Show top files
     result.push_str("Top files:\n");
-    for (file, count) in file_counts.iter().take(10) {
+    for (file, count) in file_counts.iter().take(10) { // summarization
         let short_path = compact_path(file);
         result.push_str(&format!("  {} ({} issues)\n", short_path, count));
 
@@ -341,7 +341,7 @@ pub(crate) fn filter_golangci_json(output: &str, version: u32) -> String {
         let mut file_linter_counts: Vec<_> = file_linters.iter().collect();
         file_linter_counts.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
-        for (linter, linter_issues) in file_linter_counts.iter().take(3) {
+        for (linter, linter_issues) in file_linter_counts.iter().take(3) { // summarization
             result.push_str(&format!("    {} ({})\n", linter, linter_issues.len()));
 
             // v2 only: show first source line for this linter-file group

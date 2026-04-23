@@ -366,7 +366,7 @@ pub fn run(
         exts.sort_by(|a, b| b.1.cmp(a.1));
         let ext_str: Vec<String> = exts
             .iter()
-            .take(5)
+            .take(5) // summarization
             .map(|(e, c)| format!(".{}({})", e, c))
             .collect();
         ext_line = format!("ext: {}", ext_str.join(" "));

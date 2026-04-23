@@ -4,6 +4,7 @@
 //! `rails test`, filtering down to failures/errors and the summary line.
 //! Uses `ruby_exec("rake")` to auto-detect `bundle exec`.
 
+use crate::core::config;
 use crate::core::runner;
 use crate::core::utils::{ruby_exec, strip_ansi};
 use anyhow::Result;
@@ -198,14 +199,14 @@ fn build_minitest_summary(summary: &str, failures: &[String]) -> String {
 
     result.push('\n');
 
-    for (i, failure) in failures.iter().take(10).enumerate() {
+    for (i, failure) in failures.iter().take(config::lossless_cap(10)).enumerate() {
         let lines: Vec<&str> = failure.lines().collect();
         // First line is like "  1) Failure:" or "  1) Error:"
         if let Some(header) = lines.first() {
             result.push_str(&format!("{}. {}\n", i + 1, header.trim()));
         }
         // Remaining lines contain test name, file:line, assertion message
-        for line in lines.iter().skip(1).take(4) {
+        for line in lines.iter().skip(1).take(4) { // summarization
             let trimmed = line.trim();
             if !trimmed.is_empty() {
                 result.push_str(&format!(
@@ -214,13 +215,13 @@ fn build_minitest_summary(summary: &str, failures: &[String]) -> String {
                 ));
             }
         }
-        if i < failures.len().min(10) - 1 {
+        if i < failures.len().min(config::lossless_cap(10)) - 1 {
             result.push('\n');
         }
     }
 
-    if failures.len() > 10 {
-        result.push_str(&format!("\n... +{} more failures\n", failures.len() - 10));
+    if failures.len() > config::lossless_cap(10) {
+        result.push_str(&format!("\n... +{} more failures\n", failures.len() - config::lossless_cap(10)));
     }
 
     result.trim().to_string()

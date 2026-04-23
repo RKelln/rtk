@@ -5,6 +5,7 @@
 //! when the user specifies a custom format, or when injected JSON output fails
 //! to parse.
 
+use crate::core::config;
 use crate::core::runner;
 use crate::core::utils::ruby_exec;
 use anyhow::Result;
@@ -219,14 +220,14 @@ fn filter_rubocop_text(output: &str) -> String {
             || t.starts_with("rubocop: command not found")
             || t.starts_with("rubocop: No such file")
         {
-            let error_lines: Vec<&str> = output.trim().lines().take(20).collect();
+            let error_lines: Vec<&str> = output.trim().lines().take(config::lossless_cap(20)).collect();
             let truncated = error_lines.join("\n");
             let total_lines = output.trim().lines().count();
-            if total_lines > 20 {
+            if total_lines > config::lossless_cap(20) {
                 return format!(
                     "RuboCop error:\n{}\n... ({} more lines)",
                     truncated,
-                    total_lines - 20
+                    total_lines - config::lossless_cap(20)
                 );
             }
             return format!("RuboCop error:\n{}", truncated);

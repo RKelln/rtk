@@ -1,5 +1,6 @@
 //! Runs a command and produces a heuristic summary of its output.
 
+use crate::core::config;
 use crate::core::tracking;
 use crate::core::utils::truncate;
 use anyhow::{Context, Result};
@@ -157,7 +158,7 @@ fn summarize_tests(output: &str, result: &mut Vec<String>) {
     if !failures.is_empty() {
         result.push(String::new());
         result.push("   Failures:".to_string());
-        for f in failures.iter().take(5) {
+        for f in failures.iter().take(config::lossless_cap(5)) {
             result.push(format!("   • {}", truncate(f, 70)));
         }
     }
@@ -236,11 +237,11 @@ fn summarize_list(output: &str, result: &mut Vec<String>) {
     let lines: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
     result.push(format!("List ({} items):", lines.len()));
 
-    for line in lines.iter().take(10) {
+    for line in lines.iter().take(config::lossless_cap(10)) {
         result.push(format!("   • {}", truncate(line, 70)));
     }
-    if lines.len() > 10 {
-        result.push(format!("   ... +{} more", lines.len() - 10));
+    if lines.len() > config::lossless_cap(10) {
+        result.push(format!("   ... +{} more", lines.len() - config::lossless_cap(10)));
     }
 }
 
@@ -255,11 +256,11 @@ fn summarize_json(output: &str, result: &mut Vec<String>) {
             }
             serde_json::Value::Object(obj) => {
                 result.push(format!("   Object with {} keys:", obj.len()));
-                for key in obj.keys().take(10) {
+                for key in obj.keys().take(config::lossless_cap(10)) {
                     result.push(format!("   • {}", key));
                 }
-                if obj.len() > 10 {
-                    result.push(format!("   ... +{} more keys", obj.len() - 10));
+                if obj.len() > config::lossless_cap(10) {
+                    result.push(format!("   ... +{} more keys", obj.len() - config::lossless_cap(10)));
                 }
             }
             _ => {
@@ -277,7 +278,7 @@ fn summarize_generic(output: &str, result: &mut Vec<String>) {
     result.push("Output:".to_string());
 
     // First few lines
-    for line in lines.iter().take(5) {
+    for line in lines.iter().take(config::lossless_cap(5)) {
         if !line.trim().is_empty() {
             result.push(format!("   {}", truncate(line, 75)));
         }

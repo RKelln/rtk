@@ -880,7 +880,7 @@ fn filter_cargo_test(output: &str) -> String {
             .lines()
             .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with("Compiling"))
             .collect();
-        for line in meaningful.iter().rev().take(5).rev() {
+        for line in meaningful.iter().rev().take(5).rev() { // internal
             result.push_str(&format!("{}\n", line));
         }
     }

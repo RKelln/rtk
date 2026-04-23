@@ -1,5 +1,6 @@
 //! Summarizes project dependencies from lock files and manifests.
 
+use crate::core::config;
 use crate::core::tracking;
 use anyhow::Result;
 use regex::Regex;
@@ -107,20 +108,20 @@ fn summarize_cargo_str(path: &Path) -> Result<String> {
 
     if !deps.is_empty() {
         out.push_str(&format!("  Dependencies ({}):\n", deps.len()));
-        for d in deps.iter().take(10) {
+        for d in deps.iter().take(config::lossless_cap(10)) {
             out.push_str(&format!("    {}\n", d));
         }
-        if deps.len() > 10 {
-            out.push_str(&format!("    ... +{} more\n", deps.len() - 10));
+        if deps.len() > config::lossless_cap(10) {
+            out.push_str(&format!("    ... +{} more\n", deps.len() - config::lossless_cap(10)));
         }
     }
     if !dev_deps.is_empty() {
         out.push_str(&format!("  Dev ({}):\n", dev_deps.len()));
-        for d in dev_deps.iter().take(5) {
+        for d in dev_deps.iter().take(config::lossless_cap(5)) {
             out.push_str(&format!("    {}\n", d));
         }
-        if dev_deps.len() > 5 {
-            out.push_str(&format!("    ... +{} more\n", dev_deps.len() - 5));
+        if dev_deps.len() > config::lossless_cap(5) {
+            out.push_str(&format!("    ... +{} more\n", dev_deps.len() - config::lossless_cap(5)));
         }
     }
     Ok(out)
@@ -181,11 +182,11 @@ fn summarize_requirements_str(path: &Path) -> Result<String> {
     }
 
     out.push_str(&format!("  Packages ({}):\n", deps.len()));
-    for d in deps.iter().take(15) {
+    for d in deps.iter().take(config::lossless_cap(15)) {
         out.push_str(&format!("    {}\n", d));
     }
-    if deps.len() > 15 {
-        out.push_str(&format!("    ... +{} more\n", deps.len() - 15));
+    if deps.len() > config::lossless_cap(15) {
+        out.push_str(&format!("    ... +{} more\n", deps.len() - config::lossless_cap(15)));
     }
     Ok(out)
 }
@@ -216,11 +217,11 @@ fn summarize_pyproject_str(path: &Path) -> Result<String> {
 
     if !deps.is_empty() {
         out.push_str(&format!("  Dependencies ({}):\n", deps.len()));
-        for d in deps.iter().take(10) {
+        for d in deps.iter().take(config::lossless_cap(10)) {
             out.push_str(&format!("    {}\n", d));
         }
-        if deps.len() > 10 {
-            out.push_str(&format!("    ... +{} more\n", deps.len() - 10));
+        if deps.len() > config::lossless_cap(10) {
+            out.push_str(&format!("    ... +{} more\n", deps.len() - config::lossless_cap(10)));
         }
     }
     Ok(out)
@@ -259,11 +260,11 @@ fn summarize_gomod_str(path: &Path) -> Result<String> {
     }
     if !deps.is_empty() {
         out.push_str(&format!("  Dependencies ({}):\n", deps.len()));
-        for d in deps.iter().take(10) {
+        for d in deps.iter().take(config::lossless_cap(10)) {
             out.push_str(&format!("    {}\n", d));
         }
-        if deps.len() > 10 {
-            out.push_str(&format!("    ... +{} more\n", deps.len() - 10));
+        if deps.len() > config::lossless_cap(10) {
+            out.push_str(&format!("    ... +{} more\n", deps.len() - config::lossless_cap(10)));
         }
     }
     Ok(out)

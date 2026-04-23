@@ -1,5 +1,6 @@
 //! Runs arbitrary commands and captures only stderr or test failures.
 
+use crate::core::config;
 use crate::core::tracking;
 use anyhow::{Context, Result};
 use regex::Regex;
@@ -43,7 +44,7 @@ pub fn run_err(command: &str, verbose: u8) -> Result<i32> {
                 output.status.code()
             ));
             let lines: Vec<&str> = raw.lines().collect();
-            for line in lines.iter().rev().take(10).rev() {
+            for line in lines.iter().rev().take(config::lossless_cap(10)).rev() {
                 rtk.push_str(&format!("  {}\n", line));
             }
         }
@@ -225,11 +226,11 @@ fn extract_test_summary(output: &str, command: &str) -> String {
 
     if !failures.is_empty() {
         output.push_str("[FAIL] FAILURES:\n");
-        for f in failures.iter().take(10) {
+        for f in failures.iter().take(config::lossless_cap(10)) {
             output.push_str(&format!("  {}\n", f));
         }
-        if failures.len() > 10 {
-            output.push_str(&format!("  ... +{} more failures\n", failures.len() - 10));
+        if failures.len() > config::lossless_cap(10) {
+            output.push_str(&format!("  ... +{} more failures\n", failures.len() - config::lossless_cap(10)));
         }
         output.push('\n');
     }

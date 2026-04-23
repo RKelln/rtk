@@ -1,3 +1,4 @@
+use crate::core::config;
 use crate::core::tracking;
 use crate::core::utils::{exit_code_from_output, resolved_command};
 use anyhow::{Context, Result};
@@ -85,10 +86,11 @@ pub fn run_stdout(url: &str, args: &[String], verbose: u8) -> Result<i32> {
                 format_size(output.stdout.len() as u64)
             ));
             rtk_output.push_str("--- first 10 lines ---\n");
-            for line in lines.iter().take(10) {
+            let cap = config::lossless_cap(10);
+            for line in lines.iter().take(cap) {
                 rtk_output.push_str(&format!("{}\n", truncate_line(line, 100)));
             }
-            rtk_output.push_str(&format!("... +{} more lines", total - 10));
+            rtk_output.push_str(&format!("... +{} more lines", total - cap));
         } else {
             rtk_output.push_str(&format!("{} ok | {} lines\n", compact_url(url), total));
             for line in &lines {
@@ -243,7 +245,7 @@ fn parse_error(stderr: &str, stdout: &str) -> String {
         let trimmed = line.trim();
         if !trimmed.is_empty() && !trimmed.starts_with("--") {
             if trimmed.len() > 60 {
-                let t: String = trimmed.chars().take(60).collect();
+                let t: String = trimmed.chars().take(60).collect(); // display
                 return format!("{}...", t);
             }
             return trimmed.to_string();

@@ -343,7 +343,7 @@ fn parse_trx_content(content: &str) -> Option<TestSummary> {
 
                         let stack = stack_buf.trim();
                         if !stack.is_empty() {
-                            let stack_lines: Vec<&str> = stack.lines().take(3).collect();
+                            let stack_lines: Vec<&str> = stack.lines().take(3).collect(); // summarization
                             if !stack_lines.is_empty() {
                                 details.push(stack_lines.join("\n"));
                             }
