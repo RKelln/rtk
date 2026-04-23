@@ -4,6 +4,19 @@ Detailed implementation plan for upstreaming agent-safety features from this for
 
 References: [UPSTREAM_TODO.md](UPSTREAM_TODO.md), [upstream issue #1313](https://github.com/rtk-ai/rtk/issues/1313)
 
+### Issue thread comments
+
+| Date | Author | Link | Summary |
+|------|--------|------|---------|
+| 2026-04-14 | @ChrisEdwards | [#issuecomment-4246747394](https://github.com/rtk-ai/rtk/issues/1313#issuecomment-4246747394) | Correction: most truncations do emit indicators |
+| 2026-04-16 | @RKelln | [#issuecomment-4257064698](https://github.com/rtk-ai/rtk/issues/1313#issuecomment-4257064698) | Initial fork announcement: `no_truncation` flag implemented |
+| 2026-04-16 | @ChrisEdwards | [#issuecomment-4260836155](https://github.com/rtk-ai/rtk/issues/1313#issuecomment-4260836155) | Clarification on signal vs noise truncation distinction |
+| 2026-04-17 | @ChrisEdwards | [#issuecomment-4265088886](https://github.com/rtk-ai/rtk/issues/1313#issuecomment-4265088886) | Positive feedback on implementation |
+| 2026-04-17 | @yadue | [#issuecomment-4265750903](https://github.com/rtk-ai/rtk/issues/1313#issuecomment-4265750903) | Request for CLI flag (stateless pipelines) |
+| 2026-04-17 | @noctuid | [#issuecomment-4271489282](https://github.com/rtk-ai/rtk/issues/1313#issuecomment-4271489282) | Raises warning suppression as related lossy behavior |
+| 2026-04-18 | @RKelln | [#issuecomment-4273713072](https://github.com/rtk-ai/rtk/issues/1313#issuecomment-4273713072) | Response re: warnings — likely separate PR |
+| 2026-04-23 | @RKelln | [#issuecomment-4307446084](https://github.com/rtk-ai/rtk/issues/1313#issuecomment-4307446084) | Update: full `.take(N)` audit complete + caps design notes |
+
 ---
 
 ## PR 1: `[limits] lossless = true` config flag — COMPLETED
