@@ -431,7 +431,7 @@ Apply pattern: `let cap = if config::lossless() { usize::MAX } else { N };` then
 
 ---
 
-## Design Note: Magic Numbers & The Case for a Centralized Caps Table
+## Design Note: Magic Numbers & Output Density Vocabulary
 
 *Status: future work / upstream proposal candidate*
 
@@ -445,80 +445,113 @@ After auditing all `.take(N)` sites, there are 47+ hard-coded integer literals s
 
 This is a natural consequence of organic CLI growth, and agentic coding accelerates the problem — agents write scattered magic numbers just as fluently as structured ones, so the mess compounds faster.
 
-### Considered Approaches
+### Key Insight: The Vibes Are Real, Just Unnamed
 
-| Approach | Pro | Con |
-|---|---|---|
-| Status quo (magic literals) | Zero friction | Inauditable, scattered, untestable |
-| Named constants per-file | Cheap, searchable | Still hardcoded, no central view |
-| **Centralized caps table** (`src/core/caps.rs`) | Single audit surface, self-documenting, diff-able | Requires recompile to tune |
-| User config (`~/.config/rtk/caps.toml`) | Runtime-tunable, no recompile | Adds I/O, surface area, complexity |
-| DSL (declarative filter specs) | Composable, language-agnostic | Large engineering investment, likely overkill for value delivered |
+When auditing the `.take(N)` sites, the implicit mental model behind every number was:
 
-### Recommended: `src/core/caps.rs` — Named Constants with Documented Rationale
+> *"How many of these do I need to understand what's going on?"*
 
-The sweet spot is a **centralized caps table**: one file, all caps, named by intent, with a comment explaining *why* each value was chosen. This gives:
+The answer clusters naturally by **density intent**, not by command or output type:
 
-1. **Auditability** — one file to review/diff when tuning behavior
-2. **Self-documentation** — the constant name carries intent that `take(10)` does not
-3. **DRY** — if the same logical cap appears in multiple places (e.g. "max files in a lint run"), it's defined once
-4. **`lossless_cap()` composability** — `lossless_cap(caps::FAILURES_PER_RUN)` reads as intent
+| Intent | Default | Typical use |
+|--------|---------|-------------|
+| `few`  | 3       | tight context — stack lines, per-file breakdowns |
+| `some` | 5       | focused attention — failures, warnings |
+| `many` | 10      | pattern recognition — files, rules, deps |
+| `lots` | 20      | inventory browsing — env vars, full dep lists |
 
-Example `src/core/caps.rs`:
+The numbers *are* vibes. The insight is that they're **consistent vibes** — `some` is always "enough to understand the problem without being overwhelmed", regardless of whether it's RSpec failures or lint warnings. The vocabulary makes the intent auditable without over-specifying it.
+
+### Proposed Architecture
+
+**Code is the source of truth.** Config is a sparse user override layer.
 
 ```rust
-//! Centralized output cap constants for all filter modules.
-//!
-//! All values here are *default* caps — lossless_cap() bypasses them when --lossless is set.
-//! When changing a value, document *why* the new value was chosen.
+// src/core/caps.rs
+pub enum Cap { Few, Some, Many, Lots }
 
-/// Max test failures shown per run. Covers 99% of practical TDD debug sessions.
-/// Increasing beyond 10 rarely helps — fix the first failure first.
-pub const FAILURES_PER_RUN: usize = 10;
-
-/// Max files shown in lint/format output. Beyond ~10, the pattern is clear.
-pub const FILES_PER_LINT_RUN: usize = 10;
-
-/// Max dependency entries shown per section in `rtk deps`.
-pub const DEPS_PER_SECTION: usize = 10;
-
-/// Max PATH entries shown in `rtk env`. Enough to spot conflicts/duplicates.
-pub const PATH_ENTRIES: usize = 5;
-
-/// Max "other" env vars shown before truncation.
-pub const ENV_OTHER_VARS: usize = 20;
-
-/// Max warning/error unique messages shown in `rtk log`.
-pub const LOG_ERRORS: usize = 10;
-pub const LOG_WARNINGS: usize = 5;
-
-/// Max items in generic list/summary output.
-pub const SUMMARY_LIST_ITEMS: usize = 10;
-pub const SUMMARY_FAILURES: usize = 5;
+pub fn cap(c: Cap) -> usize {
+    // checks: per-command override → global override → compiled default
+    match effective(c) {
+        Cap::Few  => 3,
+        Cap::Some => 5,
+        Cap::Many => 10,
+        Cap::Lots => 20,
+    }
+}
 ```
 
-Usage at call sites becomes:
+Call sites become expressive without naming the thing twice:
+
 ```rust
-// Before:
-for f in failures.iter().take(10) {
+// rspec_cmd.rs — "some failures is enough"
+failures.iter().take(config::cap(Cap::Some))
 
-// After:
-for f in failures.iter().take(config::lossless_cap(caps::FAILURES_PER_RUN)) {
+// deps.rs — "many deps for browsing"
+deps.iter().take(config::cap(Cap::Many))
+
+// log_cmd.rs — "few context lines per entry"
+stack.lines().take(config::cap(Cap::Few))
 ```
 
-### DSL Consideration
+`--lossless` maps cleanly: sets all levels to `usize::MAX`.
 
-A filter DSL (declarative specs like `max_items: 10, footer: "... +{n} more"`) is appealing for composability and language-agnostic auditability. However, the ROI is low for RTK specifically because:
+### User Config (`~/.config/rtk/caps.toml`)
 
-- The "footer pattern" is already fairly consistent and could be extracted as a helper function
-- The real value of a DSL is cross-language reuse or non-developer configurability — neither applies here
-- Agentic coding means the boilerplate cost of the current Rust pattern is near-zero; the DSL's main saving is developer time
+Users express their personal density contract — not command knowledge:
 
-A more pragmatic middle ground: a `format_capped_list(items, cap, label)` helper in `src/core/utils.rs` that handles the `for/if/footer` pattern, used everywhere. This eliminates the structural repetition without inventing a new language.
+```toml
+[caps]
+few  = 3
+some = 8    # I like more context than default
+many = 15
+lots = 25
+```
 
-### Suggested Upstream PR
+Per-command overrides for genuine outliers, still in the same vocabulary:
 
-1. Add `src/core/caps.rs` with named constants and rationale comments
-2. Replace all `lossless_cap(N)` literals with `lossless_cap(caps::CONSTANT_NAME)`
-3. (Optional) Extract `format_capped_list()` helper to eliminate the for/if/footer repetition pattern
+```toml
+[caps.overrides.rspec]
+some = 3    # rspec failures are verbose, dial back my personal 'some'
+```
+
+The override says "for rspec, my `some` is 3" — not a magic number, just a personal re-anchoring of the vocabulary for that context.
+
+### Discovery: `rtk caps --dump`
+
+Rather than shipping a default `caps.toml` (which gets stale), the binary generates it on demand:
+
+```
+$ rtk caps --dump
+# RTK output density defaults. Override any value in ~/.config/rtk/caps.toml.
+# --lossless bypasses all caps regardless of these settings.
+
+[caps]
+few  = 3    # tight context: stack traces, per-file breakdowns
+some = 5    # focused: failures, warnings
+many = 10   # pattern recognition: files, rules, deps
+lots = 20   # inventory: env vars, dep lists
+
+# Per-command overrides (sparse — only set what differs from your [caps] values)
+# [caps.overrides.rspec]
+# some = 3
+```
+
+The dump is always in sync because it reads compiled constants, not a static file. Users copy relevant lines, tune, done.
+
+### What This Replaces
+
+Current: `lossless_cap(10)` — opaque, scattered, untunable
+Proposed: `config::cap(Cap::Many)` — intent-named, centrally defaulted, user-overridable
+
+The `format_capped_list(items, cap, footer_label)` helper in `src/core/utils.rs` can eliminate the repetitive `for/if/footer` pattern at the same time, since every call site would be touching the `.take()` anyway.
+
+### Suggested Upstream PR Sequence
+
+1. Add `src/core/caps.rs` with `Cap` enum and `cap()` resolver
+2. Add `[caps]` + `[caps.overrides.*]` to config schema
+3. Replace all `lossless_cap(N)` literals with `config::cap(Cap::*)` 
+4. Add `rtk caps --dump` subcommand
+5. (Bonus) Extract `format_capped_list()` helper to kill the for/if/footer repetition
+
 
