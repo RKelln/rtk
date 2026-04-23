@@ -6,7 +6,7 @@ References: [UPSTREAM_TODO.md](UPSTREAM_TODO.md), [upstream issue #1313](https:/
 
 ---
 
-## PR 1: `[limits] no_truncation = true` config flag — COMPLETED
+## PR 1: `[limits] lossless = true` config flag — COMPLETED
 
 **Addresses:** Issue #1313 — silent truncation causes agent failures.
 
@@ -28,9 +28,9 @@ pub fn foo() -> &'static FooType {
 
 **`limits()` returns `&'static LimitsConfig`** (not owned). Callers access fields via auto-deref. This was a signature change from the original `LimitsConfig` return type. Adding new fields to `LimitsConfig` works transparently — `PartialEq` is derived so the startup warning comparison auto-covers new fields.
 
-**`apply_filter` vs `apply_filter_with_safety`:** The original `apply_filter()` delegates to `apply_filter_with_safety(filter, stdout, false)` for backward compat. The `_with_safety` variant accepts a `no_truncation: bool` parameter, making it testable without touching the filesystem. PR 2 should follow this pattern: add parameters to the function signature rather than reading config inside filter logic.
+**`apply_filter` vs `apply_filter_with_safety`:** The original `apply_filter()` delegates to `apply_filter_with_safety(filter, stdout, false)` for backward compat. The `_with_safety` variant accepts a `lossless: bool` parameter, making it testable without touching the filesystem. PR 2 should follow this pattern: add parameters to the function signature rather than reading config inside filter logic.
 
-**Stage 5 (`truncate_lines_at`) is intentionally NOT skipped** by `no_truncation`. It caps individual line *width* (a display concern), not line *count* (data loss). This is documented in the function's doc comment. If PR 2 adds new stages, classify each as lossy (line/result count reduction) or lossless (formatting) and guard accordingly.
+**Stage 5 (`truncate_lines_at`) is intentionally NOT skipped** by `lossless`. It caps individual line *width* (a display concern), not line *count* (data loss). This is documented in the function's doc comment. If PR 2 adds new stages, classify each as lossy (line/result count reduction) or lossless (formatting) and guard accordingly.
 
 **Truncation sites found during audit** (beyond what was originally planned):
 
@@ -188,7 +188,7 @@ Extend `format_hint()` to append index block:
   test_summary → L112, L118, L203
 ```
 
-When `no_truncation=false` and lines were dropped, auto-inject a truncation pointer:
+When `lossless=false` and lines were dropped, auto-inject a truncation pointer:
 ```
   truncated → output truncated after L89; full results from L89 in tee file
 ```
@@ -245,7 +245,7 @@ Remove the shadow warning in `toml_filter.rs` for commands listed in `rust_overr
 - **`FilterConfig` already has fields** (`ignore_dirs`, `ignore_files`). Adding `rust_override: Vec<String>` with `#[serde(default)]` is safe — existing configs without the field will deserialize fine (tested pattern in PR 1).
 - **Routing in `main.rs`:** The Clap `Commands` enum is matched in `run_cli()` at the big `match cli.command` block (~line 1322). The override check should happen *inside* each relevant Clap match arm (not before it via `env::args()`), using the Clap-resolved command name to avoid divergence between Clap's alias/case resolution and a manual `env::args()` extraction. Each guarded arm falls through to `run_fallback()` when the command is in `rust_override`.
 - **Config access:** Use the `OnceLock` caching pattern. Add a `pub fn rust_overrides() -> &'static Vec<String>` helper, or access via `Config::load()` once at the routing decision point.
-- **The `run_fallback()` call** already handles the TOML filter path including `apply_filter_with_safety` with `no_truncation`. No changes needed there — routing to it "just works" with PR 1's safety flag.
+- **The `run_fallback()` call** already handles the TOML filter path including `apply_filter_with_safety` with `lossless`. No changes needed there — routing to it "just works" with PR 1's safety flag.
 
 **Tests:**
 - Command in `rust_override` routes to TOML filter
@@ -275,7 +275,7 @@ When `mode = "compose"`:
 ### Implementation guidance from PR 1
 
 - **Stdout capture problem:** Many handlers (e.g., `grep_cmd::run`, git status in `git.rs`) call `print!()` / `println!()` directly. To compose, they'd need to return `String`. This is a significant refactor — audit which handlers print directly vs return strings. Start with handlers that already return strings (e.g., `filter_ruff_json` in `ruff_cmd.rs` returns `String`).
-- **`apply_filter_with_safety` is the right entry point** for the compose step — it already accepts the `no_truncation` flag, so composed output respects the safety config automatically.
+- **`apply_filter_with_safety` is the right entry point** for the compose step — it already accepts the `lossless` flag, so composed output respects the safety config automatically.
 
 **Recommendation:** Defer PR 3b until PR 3a proves the concept. Open a GitHub Discussion upstream to gauge interest before investing in the refactor.
 
@@ -299,7 +299,7 @@ When `mode = "compose"`:
 ## Execution Order
 
 ```
-PR 1 (no_truncation) ✅ DONE
+PR 1 (lossless) ✅ DONE
   ↓
 PR 2 (tee index)
   ↓
@@ -332,22 +332,99 @@ PR 4 (docs) — after features prove value
 
 These patterns apply to all future PRs:
 
-1. **Config caching:** Use single `CACHED_CONFIG: OnceLock<Config>` with `cached_config()` accessor. All field accessors (`limits()`, `no_truncation()`) reference this single cached instance — one disk read per process. Never call `Config::load()` in a loop or hot path. See `config::limits()`, `config::no_truncation()`, `config::passthrough_limit()` for examples.
+1. **Config caching:** Use single `CACHED_CONFIG: OnceLock<Config>` with `cached_config()` accessor. All field accessors (`limits()`, `lossless()`) reference this single cached instance — one disk read per process. Never call `Config::load()` in a loop or hot path. See `config::limits()`, `config::lossless()`, `config::passthrough_limit()` for examples.
 
 2. **Backward compatibility:** All new config sections MUST use `#[serde(default)]` on the parent `Config` field AND on individual fields within the new struct. Test deserialization of TOML that omits the new section entirely.
 
-3. **Testability:** Prefer passing config values as function parameters (like `apply_filter_with_safety(filter, stdout, no_truncation)`) over reading config inside the function. This makes unit tests filesystem-independent.
+3. **Testability:** Prefer passing config values as function parameters (like `apply_filter_with_safety(filter, stdout, lossless)`) over reading config inside the function. This makes unit tests filesystem-independent.
 
 4. **Startup warnings:** Scope to `is_operational_command()` in `run_cli()`. Don't warn on meta commands (`--version`, `gain`, `init`, `config`, `verify`).
 
-5. **Truncation classification:** When adding new filter stages or output caps, classify as lossy (reduces data — must respect `no_truncation`) or lossless (reformats — always active). Document the classification in the function's doc comment.
+5. **Truncation classification:** When adding new filter stages or output caps, classify as lossy (reduces data — must respect `lossless`) or lossless (reformats — always active). Document the classification in the function's doc comment.
 
 6. **Pre-commit gate:** `cargo fmt --all && cargo clippy --all-targets && cargo test --all` — zero tolerance for warnings or failures. Run after every logical change.
 
 7. **Duplicate code:** Extract helpers early. The `config::passthrough_limit()` pattern (combining a safety check with a config value) should be used whenever the same guard appears in 2+ places. Extract pure logic into testable helpers (e.g. `compute_passthrough_limit()`) to avoid tests duplicating implementation logic.
 
-8. **Truncation site classification for grep:** `max_line_len` (display-width, user-controlled via `--max-len`) and `max_results` (user-controlled via `--max`) are both CLI-arg-driven, not config-driven silent truncation. Classified as display concerns, same as pipeline stage 5. No `no_truncation` guard needed.
+8. **Truncation site classification for grep:** `max_line_len` (display-width, user-controlled via `--max-len`) and `max_results` (user-controlled via `--max`) are both CLI-arg-driven, not config-driven silent truncation. Classified as display concerns, same as pipeline stage 5. No `lossless` guard needed.
 
-9. **Effective limits vs raw limits:** `config::passthrough_limit()` bakes in the `no_truncation` guard, but `config::limits()` returns raw values — callers must check `no_truncation()` separately. In Rust handler code (like `cargo_cmd.rs`), use the inline pattern `let cap = if config::no_truncation() { usize::MAX } else { N };` at each truncation site. If a future PR introduces many new limit fields, consider an `effective_limits()` helper that returns a `LimitsConfig` with all values pre-set to `usize::MAX` when `no_truncation=true`.
+9. **Effective limits vs raw limits:** `config::passthrough_limit()` bakes in the `lossless` guard, but `config::limits()` returns raw values — callers must check `lossless()` separately. In Rust handler code (like `cargo_cmd.rs`), use the inline pattern `let cap = if config::lossless() { usize::MAX } else { N };` at each truncation site. If a future PR introduces many new limit fields, consider an `effective_limits()` helper that returns a `LimitsConfig` with all values pre-set to `usize::MAX` when `lossless=true`.
 
-10. **`apply_filter()` call site safety:** Only one production call site exists (`main.rs:1139`), which already uses `apply_filter_with_safety()`. The plain `apply_filter()` is used by TOML inline test runner and unit tests — both correct. When adding new TOML filter call sites, always use `apply_filter_with_safety()` with `config::no_truncation()`.
+10. **`apply_filter()` call site safety:** Only one production call site exists (`main.rs:1139`), which already uses `apply_filter_with_safety()`. The plain `apply_filter()` is used by TOML inline test runner and unit tests — both correct. When adding new TOML filter call sites, always use `apply_filter_with_safety()` with `config::lossless()`.
+
+11. **Lossy output caps — always use `config::lossless_cap(n)`:** Every place that limits how many items (lines, errors, results, files) are shown to the user must call `config::lossless_cap(n)` instead of a bare integer literal. This returns `usize::MAX` in lossless mode and `n` otherwise. Three exemption categories exist (add a trailing comment to silence `scripts/check-raw-take.sh`): `// summarization` (top-N stat summaries like "Top linters"), `// display` (`chars().take(N)` line-width), `// internal` (data structures not shown to user). The check script runs as part of the pre-commit gate.
+
+---
+
+## Remaining `.take(N)` hard caps audit — PR 1 follow-up
+
+Full grep of `src/cmds/` on branch `feature/no-truncation` (2026-04-17). Sites are classified into four categories:
+
+### LOSSY → needs `lossless` guard
+
+Apply pattern: `let cap = if config::lossless() { usize::MAX } else { N };` then `.take(cap)`, and guard any `+N more` footer similarly.
+
+| File | Lines | N | Notes |
+|------|-------|---|-------|
+| `cloud/aws_cmd.rs` | L1503 | 10 | S3 transfer errors |
+| `cloud/aws_cmd.rs` | L551,574,594,621,650,675,844,964,1003,1128,1154,1257,1304,1349,1407 | `MAX_ITEMS` | Check if `MAX_ITEMS` already driven by `passthrough_limit()` before guarding |
+| `cloud/aws_cmd.rs` | L729 | `MAX_LOG_EVENTS` | Same check |
+| `cloud/container.rs` | L91, L181, L298, L323, L401 | 10–20 | Containers/services/issues shown |
+| `cloud/wget_cmd.rs` | L88 | 10 | wget output lines capped |
+| `dotnet/dotnet_cmd.rs` | L384, L1003, L1016, L1072, L1089, L1099, L1128, L1138 | 10–20 | Files/errors/warnings/failures |
+| `git/gh_cmd.rs` | L252, L510, L592 | 5–20 | PRs/issues shown |
+| `git/git.rs` | L1367 | 10 | Remote-only branches (previously noted as "display-only" in table above — reclassified as LOSSY) |
+| `go/go_cmd.rs` | L582, L671 | 20 | Errors/issues shown |
+| `js/next_cmd.rs` | L134 | 10 | Bundle routes shown |
+| `js/prettier_cmd.rs` | L98 | 10 | Files to format |
+| `js/prisma_cmd.rs` | L368 | 5 | Prisma errors |
+| `python/mypy_cmd.rs` | L176 | 5 | Mypy errors |
+| `python/pip_cmd.rs` | L180, L209 | 10 | Packages shown |
+| `python/pytest_cmd.rs` | L172 | 5 | Test failures |
+| `ruby/rake_cmd.rs` | L201, L208 | varies | Tasks shown |
+| `ruby/rubocop_cmd.rs` | L222 | varies | Offenses shown |
+| `ruby/rspec_cmd.rs` | L227, L350 | varies | Failures shown |
+| `rust/runner.rs` | L46 | 10 | Last N lines of failed command output |
+| `rust/runner.rs` | L228 | 10 | Failures (already has `+N more` footer) |
+| `system/deps.rs` | L110, L119, L184, L219, L262 | 5–15 | Dependencies shown |
+| `system/env_cmd.rs` | L74 | 5 | PATH entries |
+| `system/env_cmd.rs` | L109 | 20 | Other env vars |
+| `system/format_cmd.rs` | L245 | 10 | Files to format |
+| `system/log_cmd.rs` | L132, L173 | 5–10 | Error/warning log groups |
+| `system/summary.rs` | L160 | 5 | Test failures in summary |
+| `system/summary.rs` | L239, L258, L280 | 5–10 | Lines of various output |
+
+### SUMMARIZATION → leave alone (intentional top-N stats)
+
+| File | Lines | Reason |
+|------|-------|--------|
+| `go/golangci_cmd.rs` | L320, L328 | "Top linters" / "Top files" stat summary |
+| `go/golangci_cmd.rs` | L344 | Top-3 linters per file drill-down |
+| `js/lint_cmd.rs` | L288, L296 | "Top rules" / "Top files" stat summary |
+| `js/lint_cmd.rs` | L311, L428 | Top-3 rules per file drill-down |
+| `js/lint_cmd.rs` | L406, L414 | Symbol/file count stat summaries |
+| `js/tsc_cmd.rs` | L126 | "Top codes" summary line |
+| `system/ls.rs` | L220 | Top-5 extension types in dir listing |
+| `system/find_cmd.rs` | L369 | Top-5 extensions in find result |
+
+### DISPLAY → leave alone (`chars().take(N)` line-width truncation)
+
+| File | Lines |
+|------|-------|
+| `cloud/wget_cmd.rs` | L246, L260 |
+| `system/env_cmd.rs` | L44 |
+| `system/log_cmd.rs` | L144, L184 |
+| `system/grep_cmd.rs` | L200 |
+
+### INTERNAL → leave alone (intermediate pipeline data, not output caps)
+
+| File | Lines | Reason |
+|------|-------|--------|
+| `system/local_llm.rs` | L88, L99, L159, L195, L211, L225, L274 | Building `key_imports`/`key_fns`/`patterns` internal structs |
+| `rust/cargo_cmd.rs` | L883 | `meaningful.iter().rev().take(5).rev()` — selects representative fallback lines |
+
+### ALREADY GUARDED (use `*_cap` variables driven by `config::lossless()`)
+
+| File | Lines |
+|------|-------|
+| `rust/cargo_cmd.rs` | L286, L635, L845, L1012, L1030, L1032 |
