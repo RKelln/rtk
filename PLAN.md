@@ -508,14 +508,26 @@ many = 15
 lots = 25
 ```
 
-Per-command overrides for genuine outliers, still in the same vocabulary:
+Per-command overrides for genuine outliers — two forms, both valid:
 
 ```toml
+# Form 1: raw number (escape hatch)
 [caps.overrides.rspec]
-some = 3    # rspec failures are verbose, dial back my personal 'some'
+some = 3
+
+# Form 2: level alias — "for rspec, treat 'some' as if it were 'few'"
+[caps.overrides.rspec]
+some = few
 ```
 
-The override says "for rspec, my `some` is 3" — not a magic number, just a personal re-anchoring of the vocabulary for that context.
+Form 2 is the more idiomatic expression: you're saying "rspec output is dense, dial `some` down a level" without knowing or caring what `few` resolves to numerically. If the user later adjusts `few = 4`, rspec automatically inherits that without a second edit.
+
+Resolution is **one level only** — `some = few` resolves to the global value of `few`, not to any further override of `few`. No transitive chains; that way lies madness.
+
+Edge cases:
+- `some = some` → no-op, uses global default (useful for explicit "reset to global")
+- `some = lots` → valid, user knows what they're doing
+- `few = lots` → chaotic but permitted; the config is yours
 
 ### Discovery: `rtk caps --dump`
 
