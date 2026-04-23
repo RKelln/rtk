@@ -4,6 +4,41 @@ Detailed implementation plan for upstreaming agent-safety features from this for
 
 References: [UPSTREAM_TODO.md](UPSTREAM_TODO.md), [upstream issue #1313](https://github.com/rtk-ai/rtk/issues/1313)
 
+---
+
+## Current Status
+
+| Branch | Base | Purpose |
+|--------|------|---------|
+| `feature/no-truncation` | v0.36.0 | **In community review** — frozen, do not rebase |
+| `feature/no-truncation-0.37.2` | v0.37.2 | **TODO** — rebase after review feedback settles |
+
+### Next steps
+
+1. **Wait for community feedback** on [the review comment](https://github.com/rtk-ai/rtk/issues/1313#issuecomment-4307470248) — give it a few days before rebasing
+2. **Create `feature/no-truncation-0.37.2`** once the approach is validated:
+   ```bash
+   git fetch upstream
+   git checkout -b feature/no-truncation-0.37.2 v0.37.2
+   git cherry-pick <upstream-eligible commits from feature/no-truncation>
+   ```
+3. **Expect conflicts in these files** (changed by both us and upstream v0.36→v0.37.2):
+
+   | File | Conflict risk | Notes |
+   |------|--------------|-------|
+   | `src/main.rs` | High | We added `--lossless` flag; upstream added new commands/flags |
+   | `src/cmds/git/git.rs` | High | We guarded caps; upstream made changes here too |
+   | `src/cmds/rust/cargo_cmd.rs` | High | We guarded caps; upstream made changes here too |
+   | `src/cmds/rust/runner.rs` | Medium | Both touched |
+   | `src/cmds/system/summary.rs` | Medium | Both touched |
+   | `src/core/runner.rs` | Low | Upstream touched, we didn't — but adjacent to our config changes |
+
+4. **Check if 0.38.0-rc lands** before submitting PR — it was already in flight (rc.174 as of 2026-04-23), may be cleaner to target that
+
+5. **Submit upstream PR** from the rebased branch, excluding fork-only commits (`docs(fork):`, `chore(fork):` prefixed)
+
+---
+
 ### Issue thread comments
 
 | Date | Author | Link | Summary |
