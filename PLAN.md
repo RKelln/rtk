@@ -508,26 +508,43 @@ many = 15
 lots = 25
 ```
 
-Per-command overrides for genuine outliers — two forms, both valid:
+Per-command overrides: the user doesn't know (or care) what level the code
+chose internally. They just know the output feels too dense or too sparse.
+So per-command overrides are **relative**, not vocabulary-based:
 
 ```toml
-# Form 1: raw number (escape hatch)
 [caps.overrides.rspec]
-some = 3
+density = -1    # rspec output is verbose, one notch less than whatever rtk chose
 
-# Form 2: level alias — "for rspec, treat 'some' as if it were 'few'"
-[caps.overrides.rspec]
-some = few
+[caps.overrides.golangci]
+density = +1    # go projects are wide, give me a bit more
 ```
 
-Form 2 is the more idiomatic expression: you're saying "rspec output is dense, dial `some` down a level" without knowing or caring what `few` resolves to numerically. If the user later adjusts `few = 4`, rspec automatically inherits that without a second edit.
+The user is saying "rspec feels like too much, back it off" — not "rspec's
+`some` should resolve to `few`". The internal vocabulary (`few/some/many/lots`)
+is an implementation detail; the user only sees the relative dial.
 
-Resolution is **one level only** — `some = few` resolves to the global value of `few`, not to any further override of `few`. No transitive chains; that way lies madness.
+Global tuning stays absolute (anchoring the scale itself):
 
-Edge cases:
-- `some = some` → no-op, uses global default (useful for explicit "reset to global")
-- `some = lots` → valid, user knows what they're doing
-- `few = lots` → chaotic but permitted; the config is yours
+```toml
+[caps]
+few  = 3
+some = 8    # I like more context globally than the default 5
+many = 15
+lots = 25
+```
+
+Per-command is always relative to whatever the code chose at that call site.
+Resolution: `effective = global_value(code_level + density_offset)`, clamped
+to `[few, lots]`. `density = 0` is a no-op. `density = -2` from `many` lands
+at `few`. No numbers in per-command config unless using the escape hatch:
+
+```toml
+[caps.overrides.rspec]
+density = -1       # relative (preferred)
+# -- or --
+some = 3           # absolute escape hatch, when you really know what you want
+```
 
 ### Discovery: `rtk caps --dump`
 
