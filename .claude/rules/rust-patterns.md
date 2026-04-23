@@ -240,6 +240,43 @@ mod tests {
 }
 ```
 
+## Lossless Output Caps — Mandatory Pattern
+
+Every place that limits how many items (lines, errors, results, files) are shown to the user
+**must** go through `config::lossless_cap(n)` so `--lossless` / `lossless = true` is respected.
+
+```rust
+// ✅ Correct — respects lossless mode
+for err in errors.iter().take(config::lossless_cap(10)) {
+    result.push_str(&format!("  {}\n", err));
+}
+// With a footer:
+let cap = config::lossless_cap(10);
+for err in errors.iter().take(cap) { ... }
+if errors.len() > cap {
+    result.push_str(&format!("... +{} more\n", errors.len() - cap));
+}
+
+// ❌ Wrong — silent data loss in default mode, invisible to user
+for err in errors.iter().take(10) { ... }
+```
+
+**Three categories that do NOT need `lossless_cap`** — annotate with a trailing comment:
+
+```rust
+// summarization — intentional top-N stat summary (e.g. "Top linters", "Top files")
+for (linter, count) in linter_counts.iter().take(10) { ... } // summarization
+
+// display — chars().take(N) line-width truncation, not data loss
+let t: String = line.chars().take(80).collect(); // display
+
+// internal — builds an internal data structure, not shown directly to user
+let key_fns: Vec<&str> = functions.iter().take(3).collect(); // internal
+```
+
+**Pre-commit enforcement:** `scripts/check-raw-take.sh` fails on any `.take(<integer>)` in
+`src/cmds/` that is not `lossless_cap(N)` and lacks one of the three exemption comments.
+
 ## Anti-Patterns (RTK-Specific)
 
 | Pattern | Problem | Fix |
@@ -251,3 +288,4 @@ mod tests {
 | `println!` in filter path | Debug artifact in output | Remove or `eprintln!` |
 | Returning early without exit code | CI/CD thinks command succeeded | `std::process::exit(code)` |
 | `clone()` of large strings | Extra allocation in hot path | Borrow with `&str` |
+| `.take(<integer>)` in `src/cmds/` | Silent lossy cap, ignores `--lossless` | `config::lossless_cap(N)` |
