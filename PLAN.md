@@ -428,3 +428,97 @@ Apply pattern: `let cap = if config::lossless() { usize::MAX } else { N };` then
 | File | Lines |
 |------|-------|
 | `rust/cargo_cmd.rs` | L286, L635, L845, L1012, L1030, L1032 |
+
+---
+
+## Design Note: Magic Numbers & The Case for a Centralized Caps Table
+
+*Status: future work / upstream proposal candidate*
+
+### The Problem
+
+After auditing all `.take(N)` sites, there are 47+ hard-coded integer literals scattered across 20+ files with no shared vocabulary and no documentation for *why* any specific value was chosen. Common questions that are currently unanswerable without source-diving:
+
+- "What's the cap for test failures in RSpec?" → `grep` required
+- "Why is it 5 for warnings but 10 for errors?" → unknown, likely vibes
+- "Can I tune these per-project without recompiling?" → no
+
+This is a natural consequence of organic CLI growth, and agentic coding accelerates the problem — agents write scattered magic numbers just as fluently as structured ones, so the mess compounds faster.
+
+### Considered Approaches
+
+| Approach | Pro | Con |
+|---|---|---|
+| Status quo (magic literals) | Zero friction | Inauditable, scattered, untestable |
+| Named constants per-file | Cheap, searchable | Still hardcoded, no central view |
+| **Centralized caps table** (`src/core/caps.rs`) | Single audit surface, self-documenting, diff-able | Requires recompile to tune |
+| User config (`~/.config/rtk/caps.toml`) | Runtime-tunable, no recompile | Adds I/O, surface area, complexity |
+| DSL (declarative filter specs) | Composable, language-agnostic | Large engineering investment, likely overkill for value delivered |
+
+### Recommended: `src/core/caps.rs` — Named Constants with Documented Rationale
+
+The sweet spot is a **centralized caps table**: one file, all caps, named by intent, with a comment explaining *why* each value was chosen. This gives:
+
+1. **Auditability** — one file to review/diff when tuning behavior
+2. **Self-documentation** — the constant name carries intent that `take(10)` does not
+3. **DRY** — if the same logical cap appears in multiple places (e.g. "max files in a lint run"), it's defined once
+4. **`lossless_cap()` composability** — `lossless_cap(caps::FAILURES_PER_RUN)` reads as intent
+
+Example `src/core/caps.rs`:
+
+```rust
+//! Centralized output cap constants for all filter modules.
+//!
+//! All values here are *default* caps — lossless_cap() bypasses them when --lossless is set.
+//! When changing a value, document *why* the new value was chosen.
+
+/// Max test failures shown per run. Covers 99% of practical TDD debug sessions.
+/// Increasing beyond 10 rarely helps — fix the first failure first.
+pub const FAILURES_PER_RUN: usize = 10;
+
+/// Max files shown in lint/format output. Beyond ~10, the pattern is clear.
+pub const FILES_PER_LINT_RUN: usize = 10;
+
+/// Max dependency entries shown per section in `rtk deps`.
+pub const DEPS_PER_SECTION: usize = 10;
+
+/// Max PATH entries shown in `rtk env`. Enough to spot conflicts/duplicates.
+pub const PATH_ENTRIES: usize = 5;
+
+/// Max "other" env vars shown before truncation.
+pub const ENV_OTHER_VARS: usize = 20;
+
+/// Max warning/error unique messages shown in `rtk log`.
+pub const LOG_ERRORS: usize = 10;
+pub const LOG_WARNINGS: usize = 5;
+
+/// Max items in generic list/summary output.
+pub const SUMMARY_LIST_ITEMS: usize = 10;
+pub const SUMMARY_FAILURES: usize = 5;
+```
+
+Usage at call sites becomes:
+```rust
+// Before:
+for f in failures.iter().take(10) {
+
+// After:
+for f in failures.iter().take(config::lossless_cap(caps::FAILURES_PER_RUN)) {
+```
+
+### DSL Consideration
+
+A filter DSL (declarative specs like `max_items: 10, footer: "... +{n} more"`) is appealing for composability and language-agnostic auditability. However, the ROI is low for RTK specifically because:
+
+- The "footer pattern" is already fairly consistent and could be extracted as a helper function
+- The real value of a DSL is cross-language reuse or non-developer configurability — neither applies here
+- Agentic coding means the boilerplate cost of the current Rust pattern is near-zero; the DSL's main saving is developer time
+
+A more pragmatic middle ground: a `format_capped_list(items, cap, label)` helper in `src/core/utils.rs` that handles the `for/if/footer` pattern, used everywhere. This eliminates the structural repetition without inventing a new language.
+
+### Suggested Upstream PR
+
+1. Add `src/core/caps.rs` with named constants and rationale comments
+2. Replace all `lossless_cap(N)` literals with `lossless_cap(caps::CONSTANT_NAME)`
+3. (Optional) Extract `format_capped_list()` helper to eliminate the for/if/footer repetition pattern
+
