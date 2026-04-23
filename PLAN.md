@@ -541,10 +541,15 @@ at `few`. No numbers in per-command config unless using the escape hatch:
 
 ```toml
 [caps.overrides.rspec]
-density = -1       # relative (preferred)
+density = -1    # relative: "a bit less than whatever rtk chose"
 # -- or --
-some = 3           # absolute escape hatch, when you really know what you want
+count = 3       # absolute: "exactly 3, I know what I want"
 ```
+
+The user never needs to know what level the code used internally, or whether
+it changed between rtk versions. `density` adjusts relative to whatever the
+code chose; `count` opts out entirely. If both are set, `count` wins —
+explicit always beats relative.
 
 ### Discovery: `rtk caps --dump`
 
